@@ -5,3 +5,4 @@ uwsgi
 ujson
 pysocks
 lxml
+mw-takedowns @ git+ssh://git@github.com/mirrorweb/mw-takedowns.git@master

@@ -7,4 +7,4 @@ if [ $? -ne 0 ]; then
 fi
 
 export PYWB_CONFIG_FILE=config.yaml
-gunicorn -w 4 pywb.apps.wayback -b 0.0.0.0:8080
+aws-vault exec mw-tna-dmz-staging -- arch -arm64 gunicorn pywb.apps.wayback -b 0.0.0.0:8080

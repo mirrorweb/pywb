@@ -7,6 +7,7 @@ collections:
     pywb:
         index_paths: ./sample_archive/cdx/
         archive_paths: ./sample_archive/warcs/
+        acl_paths: ./sample_archive/access/pywb.aclj
 
 # Settings for each collection
 use_js_obj_proxy: true

@@ -6,6 +6,9 @@ from pywb.warcserver.index.cdxobject import CDXObject
 from pywb.utils.binsearch import search
 from pywb.utils.merge import merge
 
+from mw_takedowns.access_check import url_blocked
+from sawmill.logger import Sawmill
+
 import os
 
 
@@ -145,39 +148,21 @@ class AccessChecker(object):
         if one exists otherwise the default rule
         :rtype: CDXObject
         """
-        params = {'url': url,
-                  'urlkey': urlkey,
-                  'nosource': 'true',
-                  'exact_match_suffix': self.EXACT_SUFFIX_B
-                 }
 
-        acl_iter, errs = self.aggregator(params)
-        if errs:
-            print(errs)
+        access_response = url_blocked(
+            takedown_collection={
+                "assume_role": os.getenv('ASSUME_ROLE'),
+                "table_value": os.getenv('TABLE_VALUE'),
+                "display_name": os.getenv('DISPLAY_NAME'),
+                "table_region": os.getenv('TABLE_REGION'),
+                "customer_slug": os.getenv('CUSTOMER_SLUG')
+            }, url=url)
+        # https://www.gov.uk/
 
-        key = params['key']
-        key_exact = key + self.EXACT_SUFFIX_B
-
-        tld = key.split(b',')[0]
-
-        for acl in acl_iter:
-
-            # skip empty/invalid lines
-            if not acl:
-                continue
-
-            acl_key = acl.split(b' ')[0]
-
-            if key_exact == acl_key:
-                return CDXObject(acl)
-
-            if key.startswith(acl_key):
-                return CDXObject(acl)
-
-            # if acl key already less than first tld,
-            # no match can be found
-            if acl_key < tld:
-                break
+        if not access_response.allowed_dates:
+            acl = f'{urlkey} - {{"access": "block"}}'
+            acl = bytes(acl, 'utf-8')
+            return CDXObject(acl)
 
         return self.default_rule
 
