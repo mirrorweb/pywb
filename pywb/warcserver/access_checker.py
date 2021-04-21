@@ -7,7 +7,6 @@ from pywb.utils.binsearch import search
 from pywb.utils.merge import merge
 
 from mw_takedowns.access_check import url_blocked
-from sawmill.logger import Sawmill
 
 import os
 
@@ -157,12 +156,45 @@ class AccessChecker(object):
                 "table_region": os.getenv('TABLE_REGION'),
                 "customer_slug": os.getenv('CUSTOMER_SLUG')
             }, url=url)
-        # https://www.gov.uk/
 
         if not access_response.allowed_dates:
-            acl = f'{urlkey} - {{"access": "block"}}'
+            acl = f'{urlkey} - {{"access": "exclude"}}'
             acl = bytes(acl, 'utf-8')
             return CDXObject(acl)
+
+        # params = {'url': url,
+        #           'urlkey': urlkey,
+        #           'nosource': 'true',
+        #           'exact_match_suffix': self.EXACT_SUFFIX_B
+        #           }
+        #
+        # acl_iter, errs = self.aggregator(params)
+        # if errs:
+        #     print(errs)
+        #
+        # key = params['key']
+        # key_exact = key + self.EXACT_SUFFIX_B
+        #
+        # tld = key.split(b',')[0]
+        #
+        # for acl in acl_iter:
+        #
+        #     # skip empty/invalid lines
+        #     if not acl:
+        #         continue
+        #
+        #     acl_key = acl.split(b' ')[0]
+        #
+        #     if key_exact == acl_key:
+        #         return CDXObject(acl)
+        #
+        #     if key.startswith(acl_key):
+        #         return CDXObject(acl)
+        #
+        #     # if acl key already less than first tld,
+        #     # no match can be found
+        #     if acl_key < tld:
+        #         break
 
         return self.default_rule
 

@@ -5,10 +5,10 @@
 collections:
     all: $all
     pywb:
-        index_paths: ./sample_archive/cdx/
-        archive_paths: ./sample_archive/warcs/
-        acl_paths: ./sample_archive/access/pywb.aclj
-
+        index_paths: cdx+http://tnaqa-pywb2.mirrorweb.com/published/cdx
+        archive_paths: s3://mw-tna-webarchives/webarchives/
+        acl_paths: true
+        default_access: allow
 # Settings for each collection
 use_js_obj_proxy: true
 
