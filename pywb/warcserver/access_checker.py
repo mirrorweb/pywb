@@ -81,7 +81,7 @@ class AccessChecker(object):
     EXACT_SUFFIX = '###'  # type: str
     EXACT_SUFFIX_B = b'###'  # type: bytes
 
-    def __init__(self, access_source, default_access='allow'):
+    def __init__(self, access_source, default_access='allow', mw_takedowns=False):
         """Initialize a new AccessChecker
 
         :param str|list[str]|AccessRulesAggregator access_source: An access source
@@ -99,6 +99,7 @@ class AccessChecker(object):
         self.default_rule['timestamp'] = '-'
         self.default_rule['access'] = default_access
         self.default_rule['default'] = 'true'
+        self.mw_takedowns = mw_takedowns
 
     def create_access_aggregator(self, source_files):
         """Creates a new AccessRulesAggregator using the supplied list
@@ -147,54 +148,54 @@ class AccessChecker(object):
         if one exists otherwise the default rule
         :rtype: CDXObject
         """
+        if self.mw_takedowns:
+            access_response = url_blocked(
+                takedown_collection={
+                    "assume_role": os.getenv('ASSUME_ROLE'),
+                    "table_value": os.getenv('TABLE_VALUE'),
+                    "display_name": os.getenv('DISPLAY_NAME'),
+                    "table_region": os.getenv('TABLE_REGION'),
+                    "customer_slug": os.getenv('CUSTOMER_SLUG')
+                }, url=url)
 
-        access_response = url_blocked(
-            takedown_collection={
-                "assume_role": os.getenv('ASSUME_ROLE'),
-                "table_value": os.getenv('TABLE_VALUE'),
-                "display_name": os.getenv('DISPLAY_NAME'),
-                "table_region": os.getenv('TABLE_REGION'),
-                "customer_slug": os.getenv('CUSTOMER_SLUG')
-            }, url=url)
+            if not access_response.allowed_dates:
+                acl = f'{urlkey} - {{"access": "exclude"}}'
+                acl = bytes(acl, 'utf-8')
+                return CDXObject(acl)
+        else:
+            params = {'url': url,
+                      'urlkey': urlkey,
+                      'nosource': 'true',
+                      'exact_match_suffix': self.EXACT_SUFFIX_B
+                      }
 
-        if not access_response.allowed_dates:
-            acl = f'{urlkey} - {{"access": "exclude"}}'
-            acl = bytes(acl, 'utf-8')
-            return CDXObject(acl)
+            acl_iter, errs = self.aggregator(params)
+            if errs:
+                print(errs)
 
-        # params = {'url': url,
-        #           'urlkey': urlkey,
-        #           'nosource': 'true',
-        #           'exact_match_suffix': self.EXACT_SUFFIX_B
-        #           }
-        #
-        # acl_iter, errs = self.aggregator(params)
-        # if errs:
-        #     print(errs)
-        #
-        # key = params['key']
-        # key_exact = key + self.EXACT_SUFFIX_B
-        #
-        # tld = key.split(b',')[0]
-        #
-        # for acl in acl_iter:
-        #
-        #     # skip empty/invalid lines
-        #     if not acl:
-        #         continue
-        #
-        #     acl_key = acl.split(b' ')[0]
-        #
-        #     if key_exact == acl_key:
-        #         return CDXObject(acl)
-        #
-        #     if key.startswith(acl_key):
-        #         return CDXObject(acl)
-        #
-        #     # if acl key already less than first tld,
-        #     # no match can be found
-        #     if acl_key < tld:
-        #         break
+            key = params['key']
+            key_exact = key + self.EXACT_SUFFIX_B
+
+            tld = key.split(b',')[0]
+
+            for acl in acl_iter:
+
+                # skip empty/invalid lines
+                if not acl:
+                    continue
+
+                acl_key = acl.split(b' ')[0]
+
+                if key_exact == acl_key:
+                    return CDXObject(acl)
+
+                if key.startswith(acl_key):
+                    return CDXObject(acl)
+
+                # if acl key already less than first tld,
+                # no match can be found
+                if acl_key < tld:
+                    break
 
         return self.default_rule
 

@@ -7,7 +7,8 @@ collections:
     pywb:
         index_paths: cdx+http://tnaqa-pywb2.mirrorweb.com/published/cdx
         archive_paths: s3://mw-tna-webarchives/webarchives/
-        acl_paths: true
+        acl_paths: ./sample_archive/access/
+        mw_takedowns: true
         default_access: allow
 # Settings for each collection
 use_js_obj_proxy: true
