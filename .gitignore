@@ -3,7 +3,11 @@
 # C extensions
 *.so
 
-# Packages
+# env file
+.env
+
+# Padckages
+.venv
 *.egg
 *.egg-info
 dist
