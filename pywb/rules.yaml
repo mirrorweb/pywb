@@ -53,6 +53,10 @@ default_filters:
         # remove facbook link ID when pywb urls are shared on facebook
         - match: '[?&](fbclid)=(.*)+(?=&|$)'
           replace: ''
+          
+        # remove jsessionid suffix
+        - match: '[&;](jsessionid)(.*)+(?=$)'
+          replace: ''
 
 
 
