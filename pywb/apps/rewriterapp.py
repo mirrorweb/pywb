@@ -838,7 +838,7 @@ class RewriterApp(object):
         params = {
             'url': wb_url.url,
             'output': kwargs.get('output', 'text'),
-            'filter': '~status:[2][0-9][0-9]',
+            'filter': '~status:[2-3][0-9][0-9]',
         }
         upstream_url = self.get_upstream_url(wb_url, kwargs, params)
         upstream_url = upstream_url.replace('/resource/postreq', '/index')
