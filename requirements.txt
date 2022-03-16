@@ -16,3 +16,7 @@ fakeredis<1.0
 tldextract
 python-dateutil
 markupsafe<2.1.0
+mw-takedowns @ git+ssh://git@github.com/mirrorweb/mw-takedowns@master 
+py3amf
+gunicorn
+beautifulsoup4
