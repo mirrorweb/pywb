@@ -16,3 +16,4 @@ fakeredis<1.0
 tldextract
 python-dateutil
 markupsafe<2.1.0
+ua_parser
