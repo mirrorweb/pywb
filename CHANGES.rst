@@ -1,7 +1,27 @@
+pywb 2.6.6 changelist
+~~~~~~~~~~~~~~~~~~~~~
+
+* dependency: don't use obsolete werkzeug useragent package `#704 <https://github.com/webrecorder/pywb/pull/704>`_
+* fix user-agent detection: use ua-parser module, default to new js-proxy mode, unless older browser detected `#707 <https://github.com/webrecorder/pywb/pull/707>`_
+* fix tests: disable broken s3 tests for now
+* Dockerfile: use python 3.8 by default
+
+pywb 2.6.5 changelist
+~~~~~~~~~~~~~~~~~~~~~
+
+* fix build: add 'markupsafe<2.1.0' to requirements
+
+
 pywb 2.6.4 changelist
 ~~~~~~~~~~~~~~~~~~~~~
 
 * wombat.js: actually update to 3.3.6, update built wombat.js
+
+* Fix live mode when ``redirect_to_exact`` is enabled `#692 <https://github.com/webrecorder/pywb/pull/692>`_
+
+* Rules: additional fuzzy ignore of facebook query param: `#691 <https://github.com/webrecorder/pywb/pull/691>`_
+
+* Docs: typo fixes: `#669 <https://github.com/webrecorder/pywb/pull/669>`_, `#670 <https://github.com/webrecorder/pywb/pull/670>`_
 
 
 pywb 2.6.3 changelist
