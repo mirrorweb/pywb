@@ -6,5 +6,5 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-export PYWB_CONFIG_FILE=config.yaml
+export PYWB_CONFIG_FILE=../pywb-env/config.yaml
 gunicorn -w 4 pywb.apps.wayback -b 0.0.0.0:8080

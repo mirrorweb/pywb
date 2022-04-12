@@ -157,6 +157,39 @@ class BaseLoader(object):
             params['sr-urlkey'] = orig_key
             raise LiveResourceException(msg)
 
+    def raise_on_robots_redirect(self, params, payload, cdx, status_code):
+        """
+        Check if response is a 3xx redirect to a robots.txt file
+        If so, reject this capture to avoid loading bad data
+        """
+        if cdx.get('is_live'):
+            return
+
+        if not status_code.startswith('3') or status_code == '304':
+            return
+
+        cdx_url = cdx.get('url')
+        target_url = payload.rec_headers.get_header('WARC-Target-URI')
+
+        if not cdx_url or not target_url:
+            return
+
+        orig_key = params.get('sr-urlkey') or cdx['urlkey']
+
+        # normalise
+        cdx_url = cdx_url.split('://', 1)[-1].rstrip('/')
+        target_url = target_url.split('://', 1)[-1].rstrip('/')
+
+        robots_redir = False
+        if cdx_url != target_url and 'robots.txt' in target_url:
+            robots_redir = True
+
+        if robots_redir:
+            msg = 'Robots Redirect {0} -> {1}'
+            msg = msg.format(cdx_url, target_url)
+            params['sr-urlkey'] = orig_key
+            raise LiveResourceException(msg)
+
     @staticmethod
     def _make_warc_id(id_=None):
         if not id_:
@@ -236,6 +269,11 @@ class WARCPathLoader(DefaultResolverMixin, BaseLoader):
                     if orig_cl:
                         new_cl = int(orig_cl) + (len(http_headers_buff) - orig_size)
                         payload.rec_headers.replace_header('Content-Length', str(new_cl))
+
+            # there is an error in some heritrix crawls where non-robots URLs will redirect to robots.txt files.
+            # we should check if this is the case here, and if so raise an error.
+            self.raise_on_robots_redirect(params, payload, cdx, status)
+
 
         warc_headers = payload.rec_headers
 
