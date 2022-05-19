@@ -45,6 +45,7 @@ html_templates:
 
 # Other Settings
 enable_memento: true
+strict_memento: false
 
 rules_config: pkg://pywb/rules.yaml
 
