@@ -310,8 +310,8 @@ def cdx_sort_closest(closest, cdx_iter, limit=10):
 # resolve revisits
 
 # Fields to append from cdx original to revisit
-ORIG_TUPLE = [LENGTH, OFFSET, FILENAME]
-
+#ORIG_TUPLE = [LENGTH, OFFSET, FILENAME]
+ORIG_TUPLE = []
 
 def cdx_resolve_revisits(cdx_iter):
     """

@@ -17,6 +17,8 @@ from six import text_type
 
 import six.moves.html_parser
 
+from pywb.utils.continuityutils import ContinuityUrl
+
 try:
     orig_unescape = six.moves.html_parser.unescape
     six.moves.html_parser.unescape = lambda x: x
@@ -210,6 +212,22 @@ class HTMLRewriterMixin(StreamingRewriter):
             return base_url
         else:
             return url
+
+    def _rewrite_a(self, url, mod=None):
+        if not url:
+            return ''
+
+        if self.opts.get('is_continuity', False):
+            continuity_url = ContinuityUrl(urljoin(self.orig_url, url))
+            if continuity_url.is_live_and_okay():
+                url = urljoin(self.orig_url, url)
+                return url
+
+        url = url.strip()
+        if not url:
+            return ''
+        url = self.try_unescape(url)
+        return self.url_rewriter.rewrite(url, mod)
 
     def _write_default_base(self):
         if not self.orig_url:
@@ -421,6 +439,13 @@ class HTMLRewriterMixin(StreamingRewriter):
                 rw_mod = handler.get(attr_name)
                 attr_value = self._rewrite_base(attr_value, rw_mod)
 
+            # special case: a tagz
+            elif (tag == 'a') and (attr_name == 'href') and attr_value:
+                rw_mod = handler.get(attr_name)
+                attr_value = self._rewrite_a(attr_value, rw_mod)
+                if self.opts.get('is_continuity', False):
+                    self._rewrite_target('_parent')
+
             elif attr_name == 'href':
                 rw_mod = self.defmod
                 attr_value = self._rewrite_url(attr_value, rw_mod)
@@ -496,6 +521,10 @@ class HTMLRewriterMixin(StreamingRewriter):
             return True
 
         return False
+
+    def _rewrite_target(self, attr_value):
+        self._write_attr('target', attr_value, False)
+        return True
 
     def _rewrite_head(self, start_end):
         # special case: head tag
