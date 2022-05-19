@@ -496,7 +496,7 @@ class RewriterApp(object):
                                                   timestamp=cdx['timestamp'],
                                                   mod=wb_url.mod)
 
-                resp = WbResponse.redir_response(new_url, '307 Temporary Redirect')
+                resp = WbResponse.redir_response(new_url, '302 Redirect') if self.config['strict_memento'] else WbResponse.redir_response(new_url, '307 Temporary Redirect')
                 if self.enable_memento:
                     if is_timegate and not is_proxy:
                         self._add_memento_links(target_uri, full_prefix,
