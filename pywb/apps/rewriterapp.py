@@ -774,7 +774,10 @@ class RewriterApp(object):
         elif wb_url.is_continuity_replay():
             closest = 'now'
         else:
-            closest = wb_url.timestamp
+            if self.config.get('latest_replay_only'):
+                closest = 'now'
+            else:
+                closest = wb_url.timestamp
 
         params = {'url': wb_url.url, 'closest': closest, 'matchType': 'exact'}
 
