@@ -23,7 +23,9 @@ window.wb_prefix = "{{ wb_prefix }}";
             <div class="col-12">
                 <label for="search-url" class="lead" aria-label="Search For Col">
                     {% set coll_title = metadata.title if metadata and metadata.title else coll %}
-                    {% trans %}Search the {{ coll_title }} collection by url:{% endtrans %}
+                    {% autoescape false %}
+                    {% trans %}Search the {{ coll_title }} collection by url: {% endtrans %}
+                    {% endautoescape %}
                 </label>
                 <input aria-label="url" aria-required="true" class="form-control form-control-lg" id="search-url"
                        name="search" placeholder="{{ _('Enter a URL to search for') }}"
@@ -45,7 +47,7 @@ window.wb_prefix = "{{ wb_prefix }}";
                     {% trans %}Search{% endtrans %}
                 </button>
                 <button class="btn btn-outline-info float-right mr-3" type="button" role="button"
-                        data-toggle="collapse" data-target="#advancedOptions"
+                        data-toggle="collapse" data-target="#advancedOptions" id="advanced-options"
                         aria-expanded="false" aria-controls="advancedOptions" aria-label="Advanced Search Options">
                     {{ _('Advanced Search Options') }}
                 </button>
@@ -135,7 +137,7 @@ window.wb_prefix = "{{ wb_prefix }}";
                         <div class="row">
                             <label for="filter-expression" class="col-form-label col-3">{% trans %}Expr:{% endtrans %}</label>
                             <input type="text" id="filter-expression" class="form-control col-7"
-                                   placeholder="Enter an expression to filter by"
+                                   placeholder="{% trans %}Enter an expression to filter by{% endtrans %}"
                             >
                         </div>
                     </div>
@@ -170,7 +172,7 @@ window.wb_prefix = "{{ wb_prefix }}";
                              id="collection-metadata-{{ key }}" role="tabpanel">
                             <div class="card inherit-height">
                                 <div class="card-body">
-                                    {{ val }}
+                                    {{ val | safe }}
                                 </div>
                             </div>
                         </div>

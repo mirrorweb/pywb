@@ -102,11 +102,11 @@ class TestWbIntegration(BaseConfigTest):
         assert not resp.headers.get('Content-Length')
 
     def test_replay_content_head_non_zero_content_length_match(self):
-        resp = self.testapp.get('/pywb/id_/http://www.iana.org/_js/2013.1/jquery.js', status=200)
+        resp = self.testapp.get('/pywb/20140126200625id_/http://www.iana.org/_js/2013.1/jquery.js', status=200)
         length = resp.content_length
 
         # Content-Length included if non-zero
-        resp = self.testapp.head('/pywb/id_/http://www.iana.org/_js/2013.1/jquery.js', status=200)
+        resp = self.testapp.head('/pywb/20140126200625id_/http://www.iana.org/_js/2013.1/jquery.js', status=200)
 
         #assert resp.headers['Content-Length'] == length
         assert resp.content_length == length
@@ -138,7 +138,19 @@ class TestWbIntegration(BaseConfigTest):
 
     def test_replay_redirect(self, fmod):
         resp = self.get('/pywb/2014{0}/http://www.iana.org/domains/example', fmod)
-        assert resp.headers['Location'].startswith('/pywb/2014{0}/'.format(fmod))
+        assert resp.headers['Location'] == '/pywb/2014{0}/http://www.iana.org/domains/reserved'.format(fmod)
+        assert resp.status_code == 302
+
+    def test_replay_redirect_id(self):
+        resp = self.get('/pywb/2014id_/http://www.iana.org/domains/example', fmod)
+        print(resp.headers['Location'])
+        assert resp.headers['Location'] == '/domains/reserved'
+        assert resp.status_code == 302
+
+    def test_replay_redirect_ir(self):
+        resp = self.get('/pywb/2014ir_/http://www.iana.org/domains/example', fmod)
+        print(resp.headers['Location'])
+        assert resp.headers['Location'] == '/pywb/2014ir_/http://www.iana.org/domains/reserved'
         assert resp.status_code == 302
 
     def test_replay_fuzzy_1(self, fmod):
@@ -215,6 +227,17 @@ class TestWbIntegration(BaseConfigTest):
 
     def test_replay_identity_1(self):
         resp = self.testapp.get('/pywb/20140127171251id_/http://example.com/')
+
+        # no wb header insertion
+        assert 'wombat.js' not in resp.text
+
+        assert resp.content_length == 1270, resp.content_length
+
+        # original unrewritten url present
+        assert '"http://www.iana.org/domains/example"' in resp.text
+
+    def test_replay_identity_1_ir(self):
+        resp = self.testapp.get('/pywb/20140127171251ir_/http://example.com/')
 
         # no wb header insertion
         assert 'wombat.js' not in resp.text

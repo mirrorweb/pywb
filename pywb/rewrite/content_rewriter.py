@@ -391,7 +391,7 @@ class StreamingRewriter(object):
 # ============================================================================
 class RewriteInfo(object):
     TAG_REGEX = re.compile(b'^(\xef\xbb\xbf)?\s*\<')
-    TAG_REGEX2 = re.compile(b'^.*<\w+[\s>]')
+    TAG_REGEX2 = re.compile(b'^.*<[!]?\w+[\s>]')
     JSON_REGEX = re.compile(b'^\s*[{[][{"]')  # if it starts with this then highly likely not HTML
 
     JSONP_CONTAINS = ['callback=jQuery',
@@ -524,7 +524,7 @@ class RewriteInfo(object):
         if not self.text_type:
             return False
 
-        if self.url_rewriter.wburl.mod == 'id_':
+        if self.is_identity():
             return False
 
         if self.url_rewriter.rewrite_opts.get('is_ajax'):
@@ -537,9 +537,11 @@ class RewriteInfo(object):
 
         return True
 
+    def is_identity(self):
+        return self.url_rewriter.wburl.mod in ('id_', 'ir_')
+
     def is_url_rw(self):
         if self.url_rewriter.wburl.mod in ('id_', 'bn_', 'wkrf_'):
             return False
 
         return True
-
