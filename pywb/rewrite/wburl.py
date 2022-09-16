@@ -56,6 +56,7 @@ class BaseWbUrl(object):
     URL_QUERY = 'url_query'
     REPLAY = 'replay'
     LATEST_REPLAY = 'latest_replay'
+    CONTINUITY = 'continuity_replay'
 
     def __init__(self, url='', mod='',
                  timestamp='', end_timestamp='', type=None):
@@ -69,6 +70,9 @@ class BaseWbUrl(object):
     def is_replay(self):
         return self.is_replay_type(self.type)
 
+    def is_continuity_replay(self):
+        return self.type == BaseWbUrl.CONTINUITY        
+
     def is_latest_replay(self):
         return (self.type == BaseWbUrl.LATEST_REPLAY)
 
@@ -81,6 +85,7 @@ class BaseWbUrl(object):
     @staticmethod
     def is_replay_type(type_):
         return (type_ == BaseWbUrl.REPLAY or
+                type_ == BaseWbUrl.CONTINUITY or
                 type_ == BaseWbUrl.LATEST_REPLAY)
 
     @staticmethod
@@ -95,6 +100,7 @@ class WbUrl(BaseWbUrl):
     # ======================
     QUERY_REGEX = re.compile('^(?:([\w\-:]+)/)?(\d*)[*-](\d*)/?(.+)$')
     REPLAY_REGEX = re.compile('^(\d*)([a-z]+_|[$][a-z0-9:.-]+)?/{1,3}(.+)$')
+    CONTINUITY_REGEX = re.compile('^([+])([a-z]+_)?/{1,3}(.+)$')
     #LATEST_REPLAY_REGEX = re.compile('^\w_)')
 
     DEFAULT_SCHEME = 'http://'
@@ -191,8 +197,9 @@ class WbUrl(BaseWbUrl):
         self._original_url = orig_url
 
         if not self._init_query(orig_url):
-            if not self._init_replay(orig_url):
-                raise Exception('Invalid WbUrl: ', orig_url)
+            if not self._init_continuity(orig_url):
+                if not self._init_replay(orig_url):
+                    raise Exception('Invalid WbUrl: ', orig_url)
 
         new_uri = WbUrl.to_uri(self.url)
 
@@ -246,6 +253,27 @@ class WbUrl(BaseWbUrl):
         else:
             self.type = self.QUERY
         return True
+
+    # Match continuity regex
+    # ======================
+
+    def _init_continuity(self, url):
+        continuity = self.CONTINUITY_REGEX.match(url)
+        if not continuity:
+            return None
+
+        res = continuity.groups('')
+
+        self.timestamp = res[0]
+        self.mod = res[1]
+        self.url = res[2]
+
+        if self.url.endswith('*'):
+            self.type = self.CONTINUITY
+            self.url = self.url[:-1]
+        else:
+            self.type = self.CONTINUITY
+        return True        
 
     # Match replay regex
     # ======================
