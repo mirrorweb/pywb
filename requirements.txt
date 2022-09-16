@@ -18,3 +18,4 @@ python-dateutil
 markupsafe<2.1.0
 ua_parser
 mw-takedowns @ git+ssh://git@github.com/mirrorweb/mw-takedowns@master
+beautifulsoup4
