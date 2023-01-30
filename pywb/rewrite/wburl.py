@@ -98,7 +98,7 @@ class BaseWbUrl(object):
 class WbUrl(BaseWbUrl):
     # Regexs
     # ======================
-    QUERY_REGEX = re.compile('^(?:([\w\-:]+)/)?(\d*)[*-](\d*)/?(.+)$')
+    QUERY_REGEX = re.compile('^(?:([\w\-:]+)/)?(\d*)(timeline|[*-])(\d*)/?(.+)$')
     #REPLAY_REGEX = re.compile('^(\d*)([a-z]+_|[$][a-z0-9:.-]+)?/{1,3}(.+)$')
     REPLAY_REGEX = re.compile('^(nobanner)?/?(\d*)([a-z]+_|[$][a-z0-9:.-]+)?/{1,3}(.+)$')
     CONTINUITY_REGEX = re.compile('^(nobanner)?/?([+])([a-z]+_)?/{1,3}(.+)$')
@@ -246,8 +246,8 @@ class WbUrl(BaseWbUrl):
 
         self.mod = res[0]
         self.timestamp = res[1]
-        self.end_timestamp = res[2]
-        self.url = res[3]
+        self.end_timestamp = res[3]
+        self.url = res[4]
         if self.url.endswith('*'):
             self.type = self.URL_QUERY
             self.url = self.url[:-1]
