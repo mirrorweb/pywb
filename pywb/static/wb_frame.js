@@ -65,6 +65,8 @@ ContentFrame.prototype.init_iframe = function() {
     return;
   }
 
+  this.iframe.setAttribute("name", "___wb_replay_top_frame");
+
   this.extract_prefix();
   if (window.WBBanner) {
     this.wbBanner = window.WBBanner;
@@ -229,7 +231,13 @@ ContentFrame.prototype.initBannerUpdateCheck = function(newUrl, newTs) {
  * operating in live mode
  */
 ContentFrame.prototype.load_url = function(newUrl, newTs) {
-  this.iframe.src = this.make_url(newUrl, newTs, true);
+  var newUrl = this.make_url(newUrl, newTs, true);
+  if (this.iframe.src === newUrl) {
+    return;
+  }
+
+  this.iframe.src = newUrl;
+
   if (this.wbBanner) {
     this.initBannerUpdateCheck(newUrl, newTs);
   }

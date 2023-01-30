@@ -1,3 +1,54 @@
+pywb 2.7.3 changelist
+~~~~~~~~~~~~~~~~~~~~~
+
+(In progress)
+
+* Catch warcio exceptions when indexing CDX by @oskarhek
+* Add ui.logo_home_url as config.yaml option
+* wb-manager: Show error when adding duplicate warc files by @kuechensofa
+* Improve search template and add help text by @krakan
+
+pywb 2.7.2 changelist
+~~~~~~~~~~~~~~~~~~~~~
+
+* Fix regression introduced by improper wombat update in 2.7.1
+* Fix `redirect_to_exact: false` functionality: if not set, UI will stay on current timestamp, but will display info on actual capture.
+* Location bar nav now keeps current timestamp instead of defaulting to calendar view.
+* 'Live' mode fixes, no longer cache live cdx entry, don't add timestamp when navigating in live mode without timestamp
+* Calendar dropdown on replay now scrollable.
+* Timeline toggle on replay is 'sticky', will stay on if toggled on replay.
+* Capture text: use '|' as in 'Current Capture: [title] | [capture date]'
+* Document title: Add 'Archived Page: ' prefix to avoid confusion with live pages.
+
+pywb 2.7.1 changelist
+~~~~~~~~~~~~~~~~~~~~~
+
+* Add locale-dependent handling of first day of week by @krakan in https://github.com/webrecorder/pywb/pull/781
+* Make filter expressions translatable by @krakan in https://github.com/webrecorder/pywb/pull/783
+* Add title to top frame in framed replay
+* Add missing tooltip translation strings
+* Fix calendar and timeline rendering for replay URLs without a timestamp
+* Update template documentation
+
+pywb 2.7.0 changelist
+~~~~~~~~~~~~~~~~~~~~~
+
+* New banner and calendar implementation in Vue.js, which supports localization/internationalization and easier local theming by @vanecat @ikreymer @tw4l with helpful feedback from @ldko
+* New interactive timeline to assist in navigating between captures
+* Add basic development Docker Compose configuration file
+* Update documentation
+* Add contributing guide
+
+pywb 2.6.9 changelist
+~~~~~~~~~~~~~~~~~~~~~
+
+* eval rewrite update + latest wombat by @ikreymer in https://github.com/webrecorder/pywb/pull/763
+* Rewrite: Support target rewriting, open new windows in top-frame instead by @tw4l in https://github.com/webrecorder/pywb/pull/767
+* Add arm64 platform support by @luandro in https://github.com/webrecorder/pywb/pull/775
+* Add uwsgi virtualenv information by @tw4l in https://github.com/webrecorder/pywb/pull/770
+* update to wombat 3.3.11 to support additional replay improvements
+* automated pypi publish on release https://github.com/webrecorder/pywb/pull/776
+
 pywb 2.6.8 changelist
 ~~~~~~~~~~~~~~~~~~~~~
 

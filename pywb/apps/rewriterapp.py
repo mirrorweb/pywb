@@ -3,7 +3,7 @@ from io import BytesIO
 
 import requests
 from fakeredis import FakeStrictRedis
-from six.moves.urllib.parse import unquote, urlencode, urlsplit, urlunsplit
+from six.moves.urllib.parse import unquote, urlencode, urlsplit, urlunsplit, parse_qsl
 from warcio.bufferedreaders import BufferedReader
 from warcio.recordloader import ArcWarcRecordLoader
 from warcio.timeutils import http_date_to_timestamp, timestamp_to_http_date, timestamp_to_datetime
@@ -81,10 +81,11 @@ class RewriterApp(object):
         self.redirect_to_exact = config.get('redirect_to_exact')
 
         self.banner_view = BaseInsertView(self.jinja_env, self._html_templ('banner_html'))
+        self.custom_banner_view = BaseInsertView(self.jinja_env, self._html_templ('custom_banner_html'))
 
         self.head_insert_view = HeadInsertView(self.jinja_env,
                                                self._html_templ('head_insert_html'),
-                                               self.banner_view)
+                                               self.custom_banner_view)
 
         self.frame_insert_view = TopFrameView(self.jinja_env,
                                               self._html_templ('frame_insert_html'),
@@ -579,6 +580,7 @@ class RewriterApp(object):
                                                    coll=kwargs.get('coll', ''),
                                                    replay_mod=self.replay_mod,
                                                    metadata=kwargs.get('metadata', {}),
+                                                   ui=kwargs.get('ui', {}),
                                                    config=self.config))
 
         cookie_rewriter = None
@@ -935,10 +937,19 @@ class RewriterApp(object):
 
     def handle_query(self, environ, wb_url, kwargs, full_prefix):
         prefix = self.get_full_prefix(environ)
-        params = {
-            'prefix': prefix,
-            'url': wb_url.url,
-        }
+
+
+        res = dict(parse_qsl(environ.get("QUERY_STRING")))
+        is_advanced = res.get("matchType", "exact") != "exact" or res.get("url", "").endswith("*")
+
+        # vue ui not supported for advanced search for now
+        ui = kwargs.get("ui", {})
+        if is_advanced:
+            ui["vue_calendar_ui"] = False
+
+        params = dict(url=wb_url.url,
+                      prefix=prefix,
+                      ui=ui)
         res = self.do_query_timeline(wb_url, kwargs)
         if res.status_code == 500:
             raise NotFoundException('Not found')
@@ -1047,7 +1058,9 @@ class RewriterApp(object):
         pass
 
     def get_top_frame_params(self, wb_url, kwargs):
-        return {'metadata': kwargs.get('metadata', {})}
+        return {'metadata': kwargs.get('metadata', {}),
+                'ui': kwargs.get('ui', {})
+               }
 
     def handle_custom_response(self, environ, wb_url, full_prefix, host_prefix, kwargs):
         if self.is_framed_replay(wb_url):
