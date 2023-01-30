@@ -58,6 +58,9 @@ html_templates:
 
 # Other Settings
 enable_memento: true
+strict_memento: false
+
+latest_replay_only: false
 
 rules_config: pkg://pywb/rules.yaml
 
