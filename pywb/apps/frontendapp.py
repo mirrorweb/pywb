@@ -107,6 +107,7 @@ class FrontEndApp(object):
 
         self.templates_dir = config.get('templates_dir', 'templates')
         self.static_dir = config.get('static_dir', 'static')
+        self.static_prefix = config.get('static_prefix', 'static')
 
         metadata_templ = os.path.join(self.warcserver.root_dir, '{coll}', 'metadata.yaml')
         self.metadata_cache = MetadataCache(metadata_templ)
@@ -118,8 +119,8 @@ class FrontEndApp(object):
         specific routes (proxy mode, record)
         """
         self.url_map = Map()
-        self.url_map.add(Rule('/static/_/<coll>/<path:filepath>', endpoint=self.serve_static))
-        self.url_map.add(Rule('/static/<path:filepath>', endpoint=self.serve_static))
+        self.url_map.add(Rule('/{0}/_/<coll>/<path:filepath>'.format(self.static_prefix), endpoint=self.serve_static))
+        self.url_map.add(Rule('/{0}/<path:filepath>'.format(self.static_prefix), endpoint=self.serve_static))
         self.url_map.add(Rule('/collinfo.json', endpoint=self.serve_listing))
 
         if self.is_valid_coll('$root'):
@@ -363,6 +364,9 @@ class FrontEndApp(object):
         else:
             coll_config['metadata'] = self.metadata_cache.load(coll) or {}
 
+        if 'ui' in self.warcserver.config:
+            coll_config['ui'] = self.warcserver.config['ui']
+
         return coll_config
 
     def serve_coll_page(self, environ, coll='$root'):
@@ -380,6 +384,7 @@ class FrontEndApp(object):
 
         coll_config = self.get_coll_config(coll)
         metadata = coll_config.get('metadata')
+        ui = coll_config.get('ui', {})
 
         view = BaseInsertView(self.rewriterapp.jinja_env, 'search.html')
 
@@ -391,7 +396,8 @@ class FrontEndApp(object):
                                         wb_prefix=wb_prefix,
                                         coll=coll,
                                         coll_config=coll_config,
-                                        metadata=metadata)
+                                        metadata=metadata,
+                                        ui=ui)
 
         return WbResponse.text_response(content, content_type='text/html; charset="utf-8"')
 
@@ -407,6 +413,14 @@ class FrontEndApp(object):
 
         # if coll == self.all_coll:
         #    coll = '*'
+
+        config = self.warcserver.get_coll_config(coll)
+        is_live = config.get("index") == "$live"
+
+        if is_live:
+            cache_control = "no-store, no-cache"
+        else:
+            cache_control = "max-age=86400, must-revalidate"
 
         cdx_url = base_url.format(coll=coll)
 
@@ -426,7 +440,8 @@ class FrontEndApp(object):
 
             return WbResponse.bin_stream(StreamIter(res.raw),
                                          content_type=content_type,
-                                         status=status_line)
+                                         status=status_line,
+                                         headers=[("Cache-Control", cache_control)])
 
         except Exception as e:
             return WbResponse.text_response('Error: ' + str(e), status='400 Bad Request')

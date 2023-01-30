@@ -58,6 +58,29 @@ default_filters:
 
 
 rules:
+    # wales.gov.uk rules
+    #=================================================================
+    - url_prefix: uk,gov,wales,new)/
+      fuzzy_lookup: 
+        re_type: sub
+        match: ';jsessionid=[0-9A-Z]{32}'
+        replace: ''
+
+    # oft.gov.uk rules
+    #=================================================================
+    - url_prefix: uk,gov,oft)/
+      fuzzy_lookup:
+        re_type: sub
+        match: ';jsessionid=[0-9A-Za-z]{32}'
+        replace: ''
+
+    # dsfc.ac.uk rules
+    #=================================================================    
+    - url_prefix: uk,ac,dsfc)/
+      fuzzy_lookup:
+        re_type: sub
+        match: '\?returnUrl=/Latest-News'
+        replace: ''
 
     # twitter rules
     #=================================================================
@@ -110,7 +133,7 @@ rules:
 
       fuzzy_lookup:
         match: '("(?:cursor|cursorindex)":["\d\w]+)'
-        find_all: true
+        re_type: findall
 
     - url_prefix: 'com,facebook)/ajax/pagelet/generic.php/profiletimeline'
       fuzzy_lookup: 'com,facebook\)/.*[?&](__adt=[^&]+).*[&]data=(?:.*?(?:[&]|(profile_id|pagelet_token)[^,]+))'
@@ -175,7 +198,7 @@ rules:
 
       fuzzy_lookup:
         match: '("q[\d]+":|after:\\"[^"]+)'
-        find_all: true
+        re_type: findall
 
     - url_prefix: 'com,facebook)/pages_reaction_units/more'
 
@@ -537,6 +560,12 @@ rules:
 
       rewrite:
         js_rewrite_location: urls
+
+    - url_prefix: 'com,example)/matched'
+      fuzzy_lookup:
+        re_type: sub
+        match: 'matched'
+        replace: 'replaced'          
 
     # all domain rules -- fallback to this dataset
     #=================================================================

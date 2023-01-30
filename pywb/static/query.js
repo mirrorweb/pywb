@@ -57,14 +57,6 @@ function RenderCalendar(init) {
   };
   // regex for extracting the filter constraints and filter mods to human explanation
   this.filterRE = /filter([^a-z]+)([a-z]+):(.+)/i;
-  this.filterMods = {
-    '=': 'Contains',
-    '==': 'Matches Exactly',
-    '=~': 'Matches Regex',
-    '=!': 'Does Not Contains',
-    '=!=': 'Is Not',
-    '=!~': 'Does Not Begins With'
-  };
   this.text = init.text;
   this.versionString = null;
 }
@@ -433,7 +425,6 @@ RenderCalendar.prototype.createContainers = function() {
     return;
   }
   // create the advanced results query info DOM structure
-  var forString = ' for ';
   var forElems;
 
   if (this.queryInfo.searchParams.matchType) {
@@ -503,7 +494,7 @@ RenderCalendar.prototype.createContainers = function() {
         {
           tag: 'p',
           className: 'text-center mb-0 mt-1',
-          innerText: 'Filtering by'
+          innerText: filteringBy
         },
         {
           tag: 'ul',
@@ -950,7 +941,7 @@ RenderCalendar.prototype.niceFilterDisplay = function() {
       filterList.push({
         tag: 'li',
         className: 'list-group-item',
-        innerText: match[2] + ' ' + this.filterMods[match[1]] + ' ' + match[3]
+        innerText: match[2] + ' ' + filterMods[match[1]] + ' "' + match[3] + '"'
       });
     }
   }
@@ -965,11 +956,11 @@ RenderCalendar.prototype.niceDateRange = function() {
   var from = this.queryInfo.searchParams.from;
   var to = this.queryInfo.searchParams.to;
   if (from && to) {
-    return 'From ' + from + ' to ' + to;
+    return [text.from, from, text.until, to].join(' ');
   } else if (from) {
-    return 'From ' + from + ' until ' + 'present';
+    return [text.from, from, text.until, text.present].join(' ');
   }
-  return 'From earliest until ' + to;
+  return [text.from, text.earliest, text.until, to].join(' ');
 };
 
 /**

@@ -1,4 +1,4 @@
-Webrecorder pywb 2.6
+Webrecorder pywb 2.7
 ====================
 
 .. image:: https://raw.githubusercontent.com/webrecorder/pywb/main/pywb/static/pywb-logo.png
@@ -48,6 +48,8 @@ The 2.x release included a major overhaul of pywb and introduces many new featur
 * New in 2.6: Access Control embargo and http-header control access settings.
 
 * New in 2.6: Support for localization and multi-language deployment.
+
+* New in 2.7: New banner/calendar UI written in `Vue <https://vuejs.org/>`_, with interactive timeline and easier theming of colors and logo via ``config.yaml``.
 
 
 Please see the `full documentation <https://pywb.readthedocs.org>`_ for more detailed info on all these features.
@@ -106,10 +108,4 @@ The pywb documentation is extensive. Some links to a few key guides:
 Contributions & Bug Reports
 ---------------------------
 
-Users are encouraged to fork and contribute to this project to keep improving web archiving tools.
-
-If you are interested in contributing, especially to any of these areas, please let us know!
-
-Otherwise, please take a look at `list of current issues <https://github.com/webrecorder/pywb/issues>`_ and feel free to open new ones about any aspect of pywb, including the new documentation.
-
-
+Users are encouraged to fork and contribute to this project to keep improving web archiving tools. Please consult the `contributing guide <CONTRIBUTING.md>`_ for information on how to contribute to pywb.

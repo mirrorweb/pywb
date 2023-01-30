@@ -1,14 +1,6 @@
 var dtRE = /^\d{4,14}$/;
 var didSetWasValidated = false;
 var showBadDateTimeClass = 'show-optional-bad-input';
-var filterMods = {
-  '=': 'Contains',
-  '==': 'Matches Exactly',
-  '=~': 'Matches Regex',
-  '=!': 'Does Not Contains',
-  '=!=': 'Is Not',
-  '=!~': 'Does Not Begins With'
-};
 
 var elemIds = {
   filtering: {
@@ -22,16 +14,33 @@ var elemIds = {
   },
   dateTime: {
     from: 'dt-from',
+    fromTime: 'ts-from',
     fromBad: 'dt-from-bad',
     to: 'dt-to',
+    toTime: 'ts-to',
     toBad: 'dt-to-bad'
   },
   match: 'match-type-select',
   url: 'search-url',
   form: 'search-form',
   resultsNewWindow: 'open-results-new-window',
-  advancedOptions: 'advanced-options'
+  advancedOptions: 'advanced-options',
+  resetSearchForm: 'reset-search-form',
 };
+
+function resetSearchForm(event) {
+  for (const field of [
+    elemIds.url,
+    elemIds.match,
+    elemIds.dateTime.from,
+    elemIds.dateTime.fromTime,
+    elemIds.dateTime.to,
+    elemIds.dateTime.toTime,
+  ]) {
+    document.getElementById(field).value = '';
+  }
+  clearFilters(event);
+}
 
 function makeCheckDateRangeChecker(dtInputId, dtBadNotice) {
   var dtInput = document.getElementById(dtInputId);
@@ -65,7 +74,7 @@ function makeCheckDateRangeChecker(dtInputId, dtBadNotice) {
 
 function createAndAddNoFilter(filterList) {
   var nothing = document.createElement('li');
-  nothing.innerText = 'No Filter';
+  nothing.innerText = noFilter;
   nothing.id = elemIds.filtering.nothing;
   filterList.appendChild(nothing);
 }
@@ -78,19 +87,24 @@ function addFilter(event) {
   if (!expr) return;
   var filterExpr = 'filter' + modifier + by + ':' + expr;
   var filterList = document.getElementById(elemIds.filtering.list);
+  var previousFilters = filterList.children;
+  for (var i = 0; i < previousFilters.length; ++i) {
+    var filterData = previousFilters[i].dataset;
+    if (filterData && filterData.filter && filterData.filter == filterExpr) return;
+  }
   var filterNothing = document.getElementById(elemIds.filtering.nothing);
   if (filterNothing) {
     filterList.removeChild(filterNothing);
   }
   var li = document.createElement('li');
   li.innerText =
-    'By ' +
     by[0].toUpperCase() +
     by.substr(1) +
     ' ' +
     filterMods[modifier] +
-    ' ' +
-    expr;
+    ' "' +
+    expr +
+    '"';
   li.dataset.filter = filterExpr;
   var nukeButton = document.createElement('button');
   nukeButton.type = 'button';
@@ -110,6 +124,7 @@ function addFilter(event) {
   };
   li.appendChild(nukeButton);
   filterList.appendChild(li);
+  return true;
 }
 
 function clearFilters(event) {
@@ -140,11 +155,13 @@ function performQuery(url) {
   }
   var fromT = document.getElementById(elemIds.dateTime.from).value;
   if (fromT) {
-    query.push('from=' + fromT.trim());
+    fromT += document.getElementById(elemIds.dateTime.fromTime).value;
+    query.push('from=' + fromT.replace(/[^0-9]/g, ''));
   }
   var toT = document.getElementById(elemIds.dateTime.to).value;
   if (toT) {
-    query.push('to=' + toT.trim());
+    toT += document.getElementById(elemIds.dateTime.toTime).value;
+    query.push('to=' + toT.replace(/[^0-9]/g, ''));
   }
   var builtQuery = query.join('&');
   if (document.getElementById(elemIds.resultsNewWindow).checked) {
@@ -166,6 +183,17 @@ function validateFields(form) {
   }
 }
 
+function submitForm(event, form, searchURLInput) {
+  event.preventDefault();
+  event.stopPropagation();
+  var url = searchURLInput.value;
+  if (!url) {
+    validateFields(form);
+    return;
+  }
+  performQuery(url);
+}
+
 $(document).ready(function() {
   $('[data-toggle="tooltip"]').tooltip({
     container: 'body',
@@ -179,21 +207,21 @@ $(document).ready(function() {
     elemIds.dateTime.to,
     document.getElementById(elemIds.dateTime.toBad)
   );
+  document.getElementById(elemIds.resetSearchForm).onclick = resetSearchForm;
   document.getElementById(elemIds.filtering.add).onclick = addFilter;
   document.getElementById(elemIds.filtering.clear).onclick = clearFilters;
   var searchURLInput = document.getElementById(elemIds.url);
   var form = document.getElementById(elemIds.form);
   form.addEventListener('submit', function(event) {
-    event.preventDefault();
-    event.stopPropagation();
-    var url = searchURLInput.value;
-    if (!url) {
-      validateFields(form);
-      return;
-    }
-    performQuery(url);
+    submitForm(event, form, searchURLInput);
   });
-  document.getElementById(elemIds.advancedOptions).onclick = function() {
-    validateFields(form);
-  }
+  var filteringExpression = document.getElementById(elemIds.filtering.expression);
+  filteringExpression.addEventListener("keypress", function(event) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (! addFilter()) {
+        submitForm(event, form, searchURLInput);
+      }
+    }
+  });
 });

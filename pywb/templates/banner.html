@@ -17,13 +17,16 @@ window.banner_info = {
     locales: {{ locales }},
     locale_prefixes: {{ get_locale_prefixes() | tojson }},
     prefix: "{{ wb_prefix }}",
-    staticPrefix: "{{ static_prefix }}"
+    staticPrefix: "{{ static_prefix }}",
+
+    logoImg: "{{ ui.logo }}"
 };
 </script>
+<script src="{{ static_prefix }}/loading-spinner/loading-spinner.js"></script>
+<script src="{{ static_prefix }}/vue/vueui.js"></script>
+<link rel="stylesheet" href='{{ static_prefix }}/vue_banner.css'/>
 
-<!-- default banner, create through js -->
-<script src='{{ static_prefix }}/default_banner.js'> </script>
-<link rel='stylesheet' href='{{ static_prefix }}/default_banner.css'/>
+{% include 'bootstrap_jquery.html' ignore missing %}
 
 {% endautoescape %}
 {% endif %}
