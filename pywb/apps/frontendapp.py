@@ -493,6 +493,13 @@ class FrontEndApp(object):
             if environ.get('QUERY_STRING'):
                 wb_url_str += '?' + environ.get('QUERY_STRING')
 
+        safelink_start_regex = r"(.*(gbr0|eur0).*safelinks.protection.outlook.com.*url(=|%3D))"
+
+        if re.match(safelink_start_regex, wb_url_str):
+            # sanitises url of outlook safelinks
+            safelink_end_regex = r"((&|%26|%2F&)data(=|%3D))"
+            wb_url_str = re.sub(safelink_start_regex, "", wb_url_str).split(re.findall(safelink_end_regex, wb_url_str)[0][0], 1)[0]
+
         coll_config = self.get_coll_config(coll)
         if record:
             coll_config['type'] = 'record'
