@@ -1,5 +1,5 @@
 six
-warcio>=1.7.1
+warcio @ git+ssh://git@github.com/mirrorweb/warcio@master 
 requests
 redis<3.0
 jinja2<3.0.0
