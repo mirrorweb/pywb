@@ -171,7 +171,7 @@ class FuzzyMatcher(object):
             found = True
             yield cdx
 
-        if found:
+        if found or 'filter' in params:
             return
 
         # if fuzzy matching disabled
