@@ -842,11 +842,23 @@ class RewriterApp(object):
         return r
 
     def do_query_timeline(self, wb_url, kwargs):
+        # a single digit end_timestamp controls the timeline filters
+        # <empty> - show one capture per day, and hide redirects
+        # 1       - show one capture per day, and show redirects
+        # 2       - show all captures, and hide redirects
+        # 3       - show all captures, and show redirects
+
+        if len(wb_url.end_timestamp) == 1 and wb_url.end_timestamp in ('1', '3'):
+            status_filter = '~status:[2-3][0-9][0-9]'
+        else:
+            status_filter = '~status:[2][0][0-6]'
+
         params = {
             'url': wb_url.url,
             'output': kwargs.get('output', 'text'),
-            'filter': '~status:[2-3][0-9][0-9]',
+            'filter': status_filter,
         }
+        
         upstream_url = self.get_upstream_url(wb_url, kwargs, params)
         upstream_url = upstream_url.replace('/resource/postreq', '/index')
         # upstream_url = f'{prefix}cdx?output=text&url={wb_url.url}'
@@ -876,7 +888,18 @@ class RewriterApp(object):
                                         content_type=content_type,
                                         status=status)
 
-    def group_by_year(self, cdx_lines):
+    def group_by_year(self, wb_url, cdx_lines):
+        # a single digit end_timestamp controls the timeline filters
+        # <empty> - show one capture per day, and hide redirects
+        # 1       - show one capture per day, and show redirects
+        # 2       - show all captures, and hide redirects
+        # 3       - show all captures, and show redirects
+
+        if len(wb_url.end_timestamp) == 1:
+            limit_one_per_day = False if wb_url.end_timestamp in ('2', '3') else True
+        else:
+            limit_one_per_day = self.config.get('limit_one_per_day', False)
+        
         num_instances = 0
         num_by_year = dict()
         cdx_ymd_prev = "19700101"
@@ -884,7 +907,8 @@ class RewriterApp(object):
         for cdx in cdx_lines:
             cdx_dt = timestamp_to_datetime(cdx['timestamp'])
             cdx_ymd = "{}{}{}".format(cdx_dt.year, cdx_dt.month, cdx_dt.day)
-            if self.config.get('limit_one_per_day', False):
+            # if self.config.get('limit_one_per_day', False):
+            if limit_one_per_day:
                 if cdx_ymd == cdx_ymd_prev:
                     continue
             num_instances += 1
@@ -904,7 +928,7 @@ class RewriterApp(object):
             sorted(cdx_grouped.items(), key=lambda x: x[0], reverse=True))
                 )
 
-    def timeline_renderer(self, res) -> tuple[int, dict[str, int], OrderedDict]:
+    def timeline_renderer(self, wb_url, res) -> tuple[int, dict[str, int], OrderedDict]:
         content = []
         text = res.content.split(b'\n')
         for t in text:
@@ -915,11 +939,11 @@ class RewriterApp(object):
                 for header, field in zip(cdxformat, fields):
                     cdx[header] = to_native_str(field, 'utf-8')
                 content.append(cdx)
-        return self.group_by_year(content)
+        return self.group_by_year(wb_url, content)
 
-    def make_timeline(self, res):
+    def make_timeline(self, wb_url, res):
 
-        num_instances, num_by_year, cdx_years = self.timeline_renderer(res)
+        num_instances, num_by_year, cdx_years = self.timeline_renderer(wb_url, res)
         if num_instances == 0:
             raise NotFoundException('No archives found')
         params = {'num_instances': num_instances,
@@ -953,7 +977,7 @@ class RewriterApp(object):
         res = self.do_query_timeline(wb_url, kwargs)
         if res.status_code == 500:
             raise NotFoundException('Not found')
-        timeline = self.make_timeline(res)
+        timeline = self.make_timeline(wb_url, res)
         params.update(timeline)
         return self.query_view.render_to_string(environ, **params)
 
