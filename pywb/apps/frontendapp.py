@@ -1,7 +1,7 @@
 from gevent.monkey import patch_all; patch_all()
 
 from werkzeug.routing import Map, Rule, RequestRedirect, Submount
-from werkzeug.wsgi import pop_path_info
+from wsgiref.util import shift_path_info
 from six.moves.urllib.parse import urljoin, parse_qsl
 from six import iteritems
 from warcio.utils import to_native_str
@@ -434,7 +434,11 @@ class FrontEndApp(object):
             cdx_url += 'limit=' + str(self.query_limit)
 
         try:
-            res = requests.get(cdx_url, stream=True)
+            headers = {}
+            for key in environ.keys():
+                if key.startswith("HTTP_X_"):
+                    headers[key[5:].replace("_", "-")] = environ[key]
+            res = requests.get(cdx_url, stream=True, headers=headers)
 
             status_line = '{} {}'.format(res.status_code, res.reason)
             content_type = res.headers.get('Content-Type')
@@ -554,9 +558,9 @@ class FrontEndApp(object):
             return
 
         if coll != '$root':
-            pop_path_info(environ)
+            shift_path_info(environ)
             if record:
-                pop_path_info(environ)
+                shift_path_info(environ)
 
         paths = [self.warcserver.root_dir]
 
@@ -599,7 +603,7 @@ class FrontEndApp(object):
         and message.
 
         :param dict environ: The WSGI environment dictionary for the request
-        :param str err_type: The identifier for type of error that occured
+        :param str err_type: The identifier for type of error that occurred
         :param str url: The url of the archived page that was requested
         """
         raise AppPageNotFound(err_type, url)
@@ -663,10 +667,14 @@ class FrontEndApp(object):
             # store original script_name (original prefix) before modifications are made
             environ['ORIG_SCRIPT_NAME'] = environ.get('SCRIPT_NAME')
 
-            lang = args.pop('lang', self.default_locale)
+            lang = args.pop('lang', '')
             if lang:
-                pop_path_info(environ)
+                shift_path_info(environ)
+
+            if lang:
                 environ['pywb_lang'] = lang
+            elif self.default_locale:
+                environ['pywb_lang'] = self.default_locale
 
             response = endpoint(environ, **args)
 

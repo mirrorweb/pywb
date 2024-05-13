@@ -5,12 +5,16 @@ import logging
 import heapq
 import yaml
 import re
+import gzip
 import six
+import pathlib
 
 from distutils.util import strtobool
 from pkg_resources import resource_string, get_distribution
 
 from argparse import ArgumentParser, RawTextHelpFormatter
+from tempfile import mkdtemp, TemporaryDirectory
+from zipfile import ZipFile
 
 from pywb.utils.loaders import load_yaml_config
 from warcio.timeutils import timestamp20_now
@@ -46,6 +50,9 @@ directory structure expected by pywb
     COLL_RX = re.compile('^[\w][-\w]*$')
 
     COLLS_DIR = 'collections'
+
+    WARC_RX = re.compile(r'.*\.w?arc(\.gz)?$')
+    WACZ_RX = re.compile(r'.*\.wacz$')
 
     def __init__(self, coll_name, colls_dir=None, must_exist=True):
         colls_dir = colls_dir or self.COLLS_DIR
@@ -115,29 +122,142 @@ directory structure expected by pywb
                    'To create a new collection, run\n\n{1} init {0}')
             raise IOError(msg.format(self.coll_name, sys.argv[0]))
 
-    def add_warcs(self, warcs):
+    def add_archives(self, archives, unpack_wacz=False):
         if not os.path.isdir(self.archive_dir):
             raise IOError('Directory {0} does not exist'.
                           format(self.archive_dir))
 
+        invalid_archives = []
+        warc_paths = []
+        for archive in archives:
+            if self.WARC_RX.match(archive):
+                full_path = self._add_warc(archive)
+                if full_path:
+                    warc_paths.append(full_path)
+            elif self.WACZ_RX.match(archive):
+                if unpack_wacz:
+                    self._add_wacz_unpacked(archive)
+                else:
+                    raise NotImplementedError('Adding waczs without unpacking is not yet implemented. Use '
+                                              '\'--unpack-wacz\' flag to add the wacz\'s content.')
+            else:
+                invalid_archives.append(archive)
+
+        self._index_merge_warcs(warc_paths, self.DEF_INDEX_FILE)
+
+        if invalid_archives:
+            logging.warning(f'Invalid archives weren\'t added: {", ".join(invalid_archives)}')
+
+    def _rename_warc(self, warc_basename):
+        dupe_idx = 1
+        ext = ''.join(pathlib.Path(warc_basename).suffixes)
+        pre_ext_name = warc_basename.split(ext)[0]
+
+        while True:
+            new_basename = f'{pre_ext_name}-{dupe_idx}{ext}'
+            if not os.path.exists(os.path.join(self.archive_dir, new_basename)):
+                break
+            dupe_idx += 1
+
+        return new_basename
+
+    def _add_warc(self, warc):
+        warc_source = os.path.abspath(warc)
+        source_dir, warc_basename = os.path.split(warc_source)
+
+        # don't overwrite existing warcs with duplicate names
+        if os.path.exists(os.path.join(self.archive_dir, warc_basename)):
+            warc_basename = self._rename_warc(warc_basename)
+            logging.info(f'Warc {os.path.basename(warc)} already exists - renamed to {warc_basename}.')
+
+        warc_dest = os.path.join(self.archive_dir, warc_basename)
+        shutil.copy2(warc_source, warc_dest)
+        logging.info(f'Copied {warc} to {self.archive_dir} as {warc_basename}')
+        return warc_dest
+
+    def _add_wacz_unpacked(self, wacz):
+        wacz = os.path.abspath(wacz)
+        temp_dir = mkdtemp()
+        warc_regex = re.compile(r'.+\.warc(\.gz)?$')
+        cdx_regex = re.compile(r'.+\.cdx(\.gz)?$')
+        with ZipFile(wacz, 'r') as wacz_zip_file:
+            archive_members = wacz_zip_file.namelist()
+            warc_files = [file for file in archive_members if warc_regex.match(file)]
+            if not warc_files:
+                logging.warning(f'WACZ {wacz} does not contain any warc files.')
+                return
+
+            # extract warc files
+            for warc_file in warc_files:
+                wacz_zip_file.extract(warc_file, temp_dir)
+
+            cdx_files = [file for file in archive_members if cdx_regex.match(file)]
+            if not cdx_files:
+                logging.warning(f'WACZ {wacz} does not contain any indices.')
+                return
+
+            for cdx_file in cdx_files:
+                wacz_zip_file.extract(cdx_file, temp_dir)
+
+        # copy extracted warc files to collections archive dir, use wacz filename as filename with added index if
+        # multiple warc files exist
+        warc_filename_mapping = {}
         full_paths = []
-        duplicate_warcs = []
-        for filename in warcs:
-            filename = os.path.abspath(filename)
+        for idx, extracted_warc_file in enumerate(warc_files):
+            _, warc_ext = os.path.splitext(extracted_warc_file)
+            if warc_ext == '.gz':
+                warc_ext = '.warc.gz'
+            warc_filename = os.path.basename(wacz)
+            warc_filename, _ = os.path.splitext(warc_filename)
+            warc_filename = f'{warc_filename}-{idx}{warc_ext}'
+            warc_destination_path = os.path.join(self.archive_dir, warc_filename)
 
-            # don't overwrite existing warcs with duplicate names
-            if os.path.exists(os.path.join(self.archive_dir, os.path.basename(filename))):
-                duplicate_warcs.append(filename)
-                continue
+            if os.path.exists(warc_destination_path):
+                warc_filename = self._rename_warc(warc_filename)
+                logging.info(f'Warc {warc_destination_path} already exists - renamed to {warc_filename}.')
+                warc_destination_path = os.path.join(self.archive_dir, warc_filename)
 
-            shutil.copy2(filename, self.archive_dir)
-            full_paths.append(os.path.join(self.archive_dir, filename))
-            logging.info('Copied ' + filename + ' to ' + self.archive_dir)
+            warc_filename_mapping[os.path.basename(extracted_warc_file)] = warc_filename
+            shutil.copy2(os.path.join(temp_dir, extracted_warc_file), warc_destination_path)
+            full_paths.append(warc_destination_path)
 
-        self._index_merge_warcs(full_paths, self.DEF_INDEX_FILE)
+        # rewrite filenames in wacz indices and merge them with collection index file
+        for cdx_file in cdx_files:
+            self._add_wacz_index(os.path.join(self.indexes_dir, self.DEF_INDEX_FILE), os.path.join(temp_dir, cdx_file),
+                                 warc_filename_mapping)
 
-        if duplicate_warcs:
-            logging.warning(f'Warcs {", ".join(duplicate_warcs)} weren\'t added because of duplicate names.')
+        # delete temporary files
+        shutil.rmtree(temp_dir)
+
+    def _add_wacz_index(self, collection_index_path, wacz_index_path, filename_mapping):
+        from pywb.warcserver.index.cdxobject import CDXObject
+
+        # rewrite wacz index to temporary index file
+        tempdir = TemporaryDirectory()
+        wacz_index_name = os.path.basename(wacz_index_path)
+        rewritten_index_path = os.path.join(tempdir.name, wacz_index_name)
+
+        with open(rewritten_index_path, 'w') as rewritten_index:
+            if wacz_index_path.endswith('.gz'):
+                wacz_index = gzip.open(wacz_index_path, 'rb')
+            else:
+                wacz_index = open(wacz_index_path, 'rb')
+
+            for line in wacz_index:
+                cdx_object = CDXObject(cdxline=line)
+                if cdx_object['filename'] in filename_mapping:
+                    cdx_object['filename'] = filename_mapping[cdx_object['filename']]
+                rewritten_index.write(cdx_object.to_cdxj())
+
+        if not os.path.isfile(collection_index_path):
+            shutil.move(rewritten_index_path, collection_index_path)
+            return
+
+        temp_coll_index_path = collection_index_path + '.tmp.' + timestamp20_now()
+        self._merge_indices(collection_index_path, rewritten_index_path, temp_coll_index_path)
+        shutil.move(temp_coll_index_path, collection_index_path)
+
+        tempdir.cleanup()
 
     def reindex(self):
         cdx_file = os.path.join(self.indexes_dir, self.DEF_INDEX_FILE)
@@ -190,19 +310,23 @@ directory structure expected by pywb
 
         merged_file = temp_file + '.merged'
 
-        last_line = None
-
-        with open(cdx_file, 'rb') as orig_index:
-            with open(temp_file, 'rb') as new_index:
-                with open(merged_file, 'w+b') as merged:
-                    for line in heapq.merge(orig_index, new_index):
-                        if last_line != line:
-                            merged.write(line)
-                            last_line = line
+        self._merge_indices(cdx_file, temp_file, merged_file)
 
         shutil.move(merged_file, cdx_file)
         #os.rename(merged_file, cdx_file)
         os.remove(temp_file)
+
+    @staticmethod
+    def _merge_indices(index1, index2, dest):
+        last_line = None
+
+        with open(index1, 'rb') as index1_f:
+            with open(index2, 'rb') as index2_f:
+                with open(dest, 'wb') as dest_f:
+                    for line in heapq.merge(index1_f, index2_f):
+                        if last_line != line:
+                            dest_f.write(line)
+                            last_line = line
 
     def set_metadata(self, namevalue_pairs):
         metadata_yaml = os.path.join(self.curr_coll_dir, 'metadata.yaml')
@@ -383,16 +507,23 @@ Create manage file based web archive collections
     listcmd = subparsers.add_parser('list', help=list_help)
     listcmd.set_defaults(func=do_list)
 
-    # Add Warcs
+    # Add Warcs or Waczs
     def do_add(r):
         m = CollectionsManager(r.coll_name)
-        m.add_warcs(r.files)
+        m.add_archives(r.files, r.unpack_wacz)
 
-    addwarc_help = 'Copy ARCS/WARCS to collection directory and reindex'
-    addwarc = subparsers.add_parser('add', help=addwarc_help)
-    addwarc.add_argument('coll_name')
-    addwarc.add_argument('files', nargs='+')
-    addwarc.set_defaults(func=do_add)
+    add_archives_help = 'Copy ARCs/WARCs to collection directory and reindex'
+    add_unpack_wacz_help = 'Copy WARCs from WACZ to collection directory and reindex'
+    add_archives = subparsers.add_parser('add', help=add_archives_help)
+    add_archives.add_argument(
+        '--unpack-wacz',
+        dest='unpack_wacz',
+        action='store_true',
+        help=add_unpack_wacz_help
+    )
+    add_archives.add_argument('coll_name')
+    add_archives.add_argument('files', nargs='+')
+    add_archives.set_defaults(func=do_add)
 
     # Reindex All
     def do_reindex(r):

@@ -53,5 +53,11 @@ git_hash.py
 
 # Sphinx documentation
 docs/_build/*
+
+# virtualenvs
+env/
+venv/
+
+# template symlinks
 static
 templates
