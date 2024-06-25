@@ -61,3 +61,4 @@ venv/
 # template symlinks
 static
 templates
+run-gunicorn-dev.sh

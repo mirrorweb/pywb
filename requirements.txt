@@ -1,5 +1,5 @@
 six
-warcio @ git+ssh://git@github.com/mirrorweb/warcio@master 
+warcio>=1.7.1
 requests
 redis==2.10.6
 jinja2>=3.1.2
@@ -8,7 +8,7 @@ brotlipy
 pyyaml
 werkzeug==2.2.3
 webencodings
-gevent==22.10.2
+gevent>=23.9.0
 greenlet>=2.0.2,<3.0
 webassets==2.0
 portalocker
@@ -18,7 +18,7 @@ tldextract
 python-dateutil
 markupsafe>=2.1.1
 ua_parser
-mw-takedowns @ git+ssh://git@github.com/mirrorweb/mw-takedowns@master 
+mw-takedowns @ git+ssh://git@github.com/mirrorweb/mw-takedowns@master
 py3amf
-gunicorn
 beautifulsoup4
+gunicorn
