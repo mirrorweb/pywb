@@ -12,7 +12,7 @@ gevent>=23.9.0
 greenlet>=2.0.2,<3.0
 webassets==2.0
 portalocker
-wsgiprox>=1.5.1
+wsgiprox>=1.5.2
 fakeredis<1.0
 tldextract
 python-dateutil
