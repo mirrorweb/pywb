@@ -138,7 +138,7 @@ function clearFilters(event) {
 }
 
 function performQuery(url) {
-  var query = [window.wb_prefix + '*?url=' + encodeURIComponent(url)];
+  var query = [window.wb_prefix + '*/' + encodeURIComponent(url)];
   var filterExpressions = document.getElementById(elemIds.filtering.list)
     .children;
   if (filterExpressions.length) {

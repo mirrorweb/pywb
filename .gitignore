@@ -57,3 +57,8 @@ docs/_build/*
 # virtualenvs
 env/
 venv/
+
+# template symlinks
+static
+templates
+run-gunicorn-dev.sh

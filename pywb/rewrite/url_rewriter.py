@@ -94,6 +94,8 @@ class UrlRewriter(object):
         if mod is None:
             mod = wburl.mod
 
+        # date_prepend = 'nobanner/' if wburl.is_url_rewrite_only else ''
+        # final_url = self.prefix + date_prepend + wburl.to_str(mod=mod, url=new_url)
         final_url = self.prefix + wburl.to_str(mod=mod, url=new_url)
 
         if not is_abs and self.prefix_abs and not self.rewrite_opts.get('no_match_rel'):

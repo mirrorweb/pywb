@@ -8,14 +8,17 @@ brotlipy
 pyyaml
 werkzeug==2.2.3
 webencodings
-gevent==23.9.0
+gevent>=23.9.0
 greenlet>=2.0.2,<3.0
 webassets==2.0
 portalocker
-wsgiprox>=1.5.1
+wsgiprox>=1.5.2
 fakeredis<1.0
 tldextract
 python-dateutil
 markupsafe>=2.1.1
 ua_parser
-py3AMF
+mw-takedowns @ git+ssh://git@github.com/mirrorweb/mw-takedowns@master
+py3amf
+beautifulsoup4
+gunicorn
