@@ -117,10 +117,13 @@ def main():
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--input-dir", help="Directory containing CDX files.")
     group.add_argument("--input-file", help="Path to a single CDX file.")
+    group.add_argument("--s3-file", help="S3 URI to a single CDX file (e.g., s3://bucket/path/file.cdx)")
+    group.add_argument("--s3-prefix", help="S3 URI prefix or glob for CDX files (e.g., s3://bucket/path/*.cdx)")
     parser.add_argument("--db-file", required=True, help="Path to the DuckDB database file.")
     parser.add_argument("--table-name", required=True, help="Name of the table to ingest data into.")
     parser.add_argument("--create-table", action="store_true", help="Create the table if it doesn't exist.")
     parser.add_argument("--truncate", action="store_true", help="Truncate (drop and recreate) the table before ingestion.")
+    parser.add_argument("--s3-region", help="AWS region for S3 access (e.g., us-west-2). Only needed for S3 sources.")
 
     args = parser.parse_args()
 
@@ -133,10 +136,15 @@ def main():
         if not os.path.isfile(args.input_file):
             print(f"Error: Input file '{args.input_file}' not found.")
             return
+    # No validation for S3 URIs here; DuckDB will error if not found
 
     conn = None
     try:
         conn = connect_db(args.db_file)
+
+        # Set S3 region if specified
+        if args.s3_region:
+            conn.execute(f"SET s3_region='{args.s3_region}';")
 
         if args.truncate:
             truncate_table(conn, args.table_name)
@@ -153,14 +161,72 @@ def main():
         # Determine files to ingest
         if args.input_file:
             cdx_files = [args.input_file]
-        else:
+        elif args.input_dir:
             cdx_files = glob.glob(os.path.join(args.input_dir, "*.cdx"))
             if not cdx_files:
                 print(f"No .cdx files found in '{args.input_dir}'.")
                 return
+        elif args.s3_file:
+            cdx_files = [args.s3_file]
+        elif args.s3_prefix:
+            cdx_files = [args.s3_prefix]  # glob pattern for DuckDB S3
+        else:
+            print("No input source specified.")
+            return
 
         for cdx_file in cdx_files:
-            ingest_cdx_file(conn, args.table_name, cdx_file)
+            if cdx_file.startswith("s3://"):
+                # S3 ingestion: let DuckDB handle S3 URLs directly
+                print(f"Ingesting {cdx_file} into {args.table_name} from S3...")
+                # We cannot check for header line in S3, so always skip 0
+                skip_header = 0
+                ingest_query = f"""
+                INSERT INTO {args.table_name} (urlkey, timestamp, url, mime, status, digest, redirect, meta, length, \"offset\", filename)
+                SELECT
+                    parsed_csv.urlkey,
+                    parsed_csv.timestamp,
+                    parsed_csv.url,
+                    parsed_csv.mime,
+                    parsed_csv.status,
+                    parsed_csv.digest,
+                    parsed_csv.redirect,
+                    parsed_csv.meta,
+                    TRY_CAST(parsed_csv.length AS BIGINT),
+                    TRY_CAST(parsed_csv.\"offset\" AS BIGINT),
+                    parsed_csv.filename
+                FROM read_csv('{cdx_file}',
+                    header=false,
+                    delim=' ',
+                    skip={skip_header},
+                    null_padding=true,
+                    columns={{
+                        'urlkey': 'VARCHAR',
+                        'timestamp': 'VARCHAR',
+                        'url': 'VARCHAR',
+                        'mime': 'VARCHAR',
+                        'status': 'VARCHAR',
+                        'digest': 'VARCHAR',
+                        'redirect': 'VARCHAR',
+                        'meta': 'VARCHAR',
+                        'length': 'VARCHAR',
+                        'offset': 'VARCHAR',
+                        'filename': 'VARCHAR'
+                    }},
+                    auto_detect=false,
+                    strict_mode=false
+                ) AS parsed_csv
+                ORDER BY urlkey, timestamp;
+                """
+                try:
+                    conn.execute(ingest_query)
+                    print(f"Successfully ingested data from {cdx_file}.")
+                except duckdb.Error as e:
+                    print(f"DuckDB error ingesting {cdx_file}: {e}")
+                    print(f"Failed SQL: {ingest_query}")
+                except Exception as e:
+                    print(f"General error ingesting {cdx_file}: {e}")
+            else:
+                ingest_cdx_file(conn, args.table_name, cdx_file)
 
         # Sort the table by urlkey and timestamp
         conn.execute(f"CREATE OR REPLACE TABLE {args.table_name} AS SELECT * FROM {args.table_name} ORDER BY urlkey, \"timestamp\";")
