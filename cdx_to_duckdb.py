@@ -114,7 +114,9 @@ def ingest_cdx_file(conn, table_name, cdx_file_path):
 
 def main():
     parser = argparse.ArgumentParser(description="Ingest CDX files into a DuckDB database.")
-    parser.add_argument("--input-dir", required=True, help="Directory containing CDX files.")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--input-dir", help="Directory containing CDX files.")
+    group.add_argument("--input-file", help="Path to a single CDX file.")
     parser.add_argument("--db-file", required=True, help="Path to the DuckDB database file.")
     parser.add_argument("--table-name", required=True, help="Name of the table to ingest data into.")
     parser.add_argument("--create-table", action="store_true", help="Create the table if it doesn't exist.")
@@ -122,9 +124,15 @@ def main():
 
     args = parser.parse_args()
 
-    if not os.path.isdir(args.input_dir):
-        print(f"Error: Input directory '{args.input_dir}' not found.")
-        return
+    # Validate input
+    if args.input_dir:
+        if not os.path.isdir(args.input_dir):
+            print(f"Error: Input directory '{args.input_dir}' not found.")
+            return
+    elif args.input_file:
+        if not os.path.isfile(args.input_file):
+            print(f"Error: Input file '{args.input_file}' not found.")
+            return
 
     conn = None
     try:
@@ -142,11 +150,14 @@ def main():
                 print(f"Error: Table '{args.table_name}' does not exist. Use --create-table or --truncate to create it.")
                 return
 
-
-        cdx_files = glob.glob(os.path.join(args.input_dir, "*.cdx"))
-        if not cdx_files:
-            print(f"No .cdx files found in '{args.input_dir}'.")
-            return
+        # Determine files to ingest
+        if args.input_file:
+            cdx_files = [args.input_file]
+        else:
+            cdx_files = glob.glob(os.path.join(args.input_dir, "*.cdx"))
+            if not cdx_files:
+                print(f"No .cdx files found in '{args.input_dir}'.")
+                return
 
         for cdx_file in cdx_files:
             ingest_cdx_file(conn, args.table_name, cdx_file)
