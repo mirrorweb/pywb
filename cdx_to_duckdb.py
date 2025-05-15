@@ -151,6 +151,11 @@ def main():
         for cdx_file in cdx_files:
             ingest_cdx_file(conn, args.table_name, cdx_file)
 
+        # Sort the table by urlkey and timestamp
+        conn.execute(f"CREATE OR REPLACE TABLE {args.table_name} AS SELECT * FROM {args.table_name} ORDER BY urlkey, \"timestamp\";")
+        # Remove rows where urlkey is null
+        conn.execute(f"DELETE FROM {args.table_name} WHERE urlkey IS NULL;")
+
         print("Ingestion process completed.")
 
     except Exception as e:
