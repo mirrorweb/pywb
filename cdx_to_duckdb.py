@@ -105,7 +105,8 @@ def ingest_file(conn, table_name, file_path):
                 'filename': 'VARCHAR'
             }},
             auto_detect=false,
-            strict_mode=false
+            strict_mode=false,
+            ignore_errors=true
         ) AS parsed_csv
         ORDER BY urlkey, timestamp;
         """
@@ -126,7 +127,14 @@ def finalize_table(conn, table_name):
         print("Optimizing table...")
         conn.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM {table_name} ORDER BY urlkey, \"timestamp\";")
         # Remove rows where urlkey is null
-        conn.execute(f"DELETE FROM {table_name} WHERE urlkey IS NULL;")
+        conn.execute(f"""
+            DELETE FROM {table_name} 
+            WHERE urlkey IS NULL 
+            OR timestamp IS NULL
+            OR "offset" IS NULL
+            OR length IS NULL
+            OR filename IS NULL
+        """)
         print("Table optimization completed.")
         return True
     except Exception as e:
