@@ -14,6 +14,7 @@ from pywb.warcserver.index.indexsource import FileIndexSource, RemoteIndexSource
 from pywb.warcserver.index.indexsource import MementoIndexSource, RedisIndexSource
 from pywb.warcserver.index.indexsource import LiveIndexSource, WBMementoIndexSource
 from pywb.warcserver.index.indexsource import XmlQueryIndexSource
+from pywb.warcserver.index.indexsource import DuckDBIndexSource
 
 from pywb.warcserver.index.zipnum import ZipNumIndexSource
 
@@ -35,6 +36,7 @@ SOURCE_LIST = [LiveIndexSource,
                FileIndexSource,
                RemoteIndexSource,
                ZipNumIndexSource,
+               DuckDBIndexSource
               ]
 
 

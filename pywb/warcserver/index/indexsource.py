@@ -23,6 +23,10 @@ import requests
 import re
 import logging
 import os
+try:
+    import duckdb
+except ImportError:
+    duckdb = None
 
 
 no_verify = os.environ.get("PYWB_NO_VERIFY_SSL")
@@ -760,3 +764,176 @@ class WBMementoIndexSource(MementoIndexSource):
     @classmethod
     def _init_id(cls):
         return 'wb-memento'
+
+
+#=============================================================================
+class DuckDBIndexSource(BaseIndexSource):
+    """
+    Index source for reading CDX-like data from a DuckDB database.
+    Assumes a table named 'cdx' with columns:
+    urlkey, timestamp, url, mime, status, digest, length, offset, filename
+    """
+    def __init__(self, db_path, table_name='cdx', config=None):
+        super(DuckDBIndexSource, self).__init__()
+        if duckdb is None:
+            raise ImportError("duckdb library is not installed. Please install it to use DuckDBIndexSource.")
+        self.db_path = db_path
+        self.table_name = table_name
+        # Defer connection until load_index is called, as it might be called in a different process/thread.
+
+    def load_index(self, params):
+        filename = res_template(self.db_path, params)
+
+        try:
+            con = duckdb.connect(database=filename, read_only=True)
+        except Exception as e:
+            self.logger.error(f"Failed to connect to DuckDB: {filename} - {e}")
+            raise NotFoundException(f"DuckDB database not found or connection failed: {filename}")
+
+        query_parts = [f"SELECT urlkey, timestamp, url, mime, status, digest, length, \"offset\", filename FROM {self.table_name}"]
+        query_params = []
+
+        url = params.get('url')
+        key = params.get('key') # сюрприз, сюрприз! The key is already canonicalized.
+        end_key = params.get('end_key')
+        match_type = params.get('matchType', 'exact')
+        limit = params.get('limit')
+        closest_ts = params.get('closest') # Timestamp for closest match
+
+        if match_type == 'exact':
+            if key:
+                query_parts.append("WHERE urlkey = ?")
+                query_params.append(key.decode('utf-8') if isinstance(key, bytes) else key)
+            else: # Should not happen if key is derived from url
+                raise BadRequestException("URL key is required for exact match")
+            if closest_ts:
+                # For exact URL match with closest timestamp, we select the exact URL
+                # and then sort by timestamp difference in Python, or let DB do it if efficient.
+                # DuckDB can do this efficiently with abs(timestamp - target_timestamp)
+                query_parts.append("ORDER BY ABS(CAST(timestamp AS BIGINT) - CAST(? AS BIGINT))")
+                query_params.append(closest_ts)
+            else:
+                # If no closest timestamp, order by timestamp (default for CDX)
+                query_parts.append("ORDER BY timestamp")
+
+        elif match_type == 'prefix':
+            if key:
+                # Remove the trailing '*' if present, as it's implicit in LIKE
+                prefix_key_str = (key.decode('utf-8') if isinstance(key, bytes) else key).rstrip('*')
+                query_parts.append("WHERE urlkey LIKE ?")
+                query_params.append(prefix_key_str + '%')
+                query_parts.append("ORDER BY urlkey, timestamp") # Sort by urlkey then timestamp for prefix
+            else:
+                raise BadRequestException("URL key prefix is required for prefix match")
+
+        elif match_type == 'host':
+            # Assuming key for host match is the host itself, possibly reversed.
+            # This might need more sophisticated parsing of the key if it's a SURT key.
+            # For simplicity, let's assume key is the host that needs to be part of urlkey.
+            # A common pattern for host search is `com,example)/%` for SURT keys.
+            if key:
+                host_key_str = (key.decode('utf-8') if isinstance(key, bytes) else key)
+                if not host_key_str.endswith('%'): # Ensure it's a prefix for LIKE
+                    host_key_str += '%'
+                query_parts.append("WHERE urlkey LIKE ?")
+                query_params.append(host_key_str)
+                query_parts.append("ORDER BY urlkey, timestamp")
+            else:
+                 raise BadRequestException("Host key is required for host match")
+
+
+        # For range queries (not directly supported by all match types in this basic form)
+        # but 'key' and 'end_key' are used by iter_range in FileIndexSource
+        # We can adapt if a specific use case for DuckDB requires direct range on urlkey + timestamp.
+        # For now, primary filtering is by urlkey based on matchType.
+        # If end_key is provided and different from key, it implies a range.
+        # This simple implementation doesn't fully handle complex range queries like `iter_range` does.
+        # It primarily uses `key` for filtering.
+
+        if limit:
+            query_parts.append("LIMIT ?")
+            query_params.append(int(limit))
+
+        final_query = " ".join(query_parts)
+        self.logger.debug(f"DuckDB Query: {final_query}, Params: {query_params}")
+
+        def do_iter():
+            try:
+                cursor = con.execute(final_query, query_params)
+                # Fetch column names to map to CDXObject dynamically
+                # col_names = [desc[0] for desc in cursor.description]
+                for row in cursor.fetchall():
+                    # Assuming row is a tuple in the order of SELECTed columns
+                    # (urlkey, timestamp, url, mime, status, digest, length, offset, filename)
+                    cdx = CDXObject()
+                    cdx['urlkey'] = row[0]
+                    cdx['timestamp'] = str(row[1]) # Ensure timestamp is string
+                    cdx['url'] = row[2]
+                    cdx['mime'] = row[3]
+                    cdx['status'] = str(row[4]) # Ensure status is string
+                    cdx['digest'] = row[5]
+                    cdx['length'] = str(row[6]) if row[6] is not None else '-'
+                    cdx['offset'] = str(row[7]) if row[7] is not None else '-'
+                    cdx['filename'] = row[8] if row[8] is not None else '-'
+                    # Add source from params if available
+                    source_name = params.get('_name')
+                    if source_name:
+                         cdx['source'] = source_name
+                    yield cdx
+            except Exception as e:
+                self.logger.error(f"DuckDB query failed: {e}")
+            finally:
+                if con:
+                    con.close()
+        return do_iter()
+
+    def __repr__(self):
+        return '{0}(duckdb://{1}, table={2})'.format(self.__class__.__name__,
+                                                     self.db_path,
+                                                     self.table_name)
+
+    def __str__(self):
+        return 'duckdb'
+
+    def __eq__(self, other):
+        if not isinstance(other, self.__class__):
+            return False
+        return self.db_path == other.db_path and self.table_name == other.table_name
+
+    @classmethod
+    def init_from_string(cls, value, config=None):
+        if value.startswith('duckdb://'):
+            path_part = value[len('duckdb://'):]
+            # Allow specifying table name like duckdb:///path/to/db.duckdb?table=my_cdx
+            if '?' in path_part:
+                db_path, query_str = path_part.split('?', 1)
+                params_dict = dict(p.split('=', 1) for p in query_str.split('&'))
+                table_name = params_dict.get('table', 'cdx')
+                return cls(db_path, table_name=table_name, config=config)
+            return cls(path_part, config=config)
+        return None
+
+    @classmethod
+    def init_from_config(cls, config):
+        if config.get('type') != 'duckdb':
+            return None
+
+        db_path = config.get('path') or config.get('db_path')
+        if not db_path:
+            # Try to get from a 'url' field if path/db_path is not present
+            db_path_from_url = config.get('url')
+            if db_path_from_url and db_path_from_url.startswith('duckdb://'):
+                 # strip prefix and handle potential query params for table name
+                path_part = db_path_from_url[len('duckdb://'):]
+                if '?' in path_part:
+                    db_path, query_str = path_part.split('?', 1)
+                    params_dict = dict(p.split('=', 1) for p in query_str.split('&'))
+                    table_name = params_dict.get('table', 'cdx')
+                    return cls(db_path, table_name=table_name, config=config)
+                return cls(path_part, config=config) # use path_part as db_path
+            else: # If not a duckdb:// url or no url field, cannot initialize
+                return None
+
+
+        table_name = config.get('table_name', 'cdx')
+        return cls(db_path, table_name=table_name, config=config)

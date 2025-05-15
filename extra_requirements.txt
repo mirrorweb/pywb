@@ -7,3 +7,5 @@ pysocks
 lxml
 babel
 translate_toolkit
+duckdb
+Py3AMF
