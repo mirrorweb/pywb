@@ -1,3 +1,4 @@
+from collections import OrderedDict, defaultdict
 from io import BytesIO
 
 import requests
@@ -5,7 +6,8 @@ from fakeredis import FakeStrictRedis
 from six.moves.urllib.parse import unquote, urlencode, urlsplit, urlunsplit, parse_qsl
 from warcio.bufferedreaders import BufferedReader
 from warcio.recordloader import ArcWarcRecordLoader
-from warcio.timeutils import http_date_to_timestamp, timestamp_to_http_date
+from warcio.timeutils import http_date_to_timestamp, timestamp_to_http_date, timestamp_to_datetime
+from warcio.utils import to_native_str
 
 from pywb.apps.wbrequestresponse import WbResponse
 from pywb.rewrite.cookies import CookieTracker
@@ -18,7 +20,7 @@ from pywb.utils.canonicalize import canonicalize
 from pywb.utils.io import BUFF_SIZE, OffsetLimitReader, no_except_close
 from pywb.utils.memento import MementoUtils
 from pywb.utils.wbexception import NotFoundException, UpstreamException
-from pywb.warcserver.index.cdxobject import CDXObject
+from pywb.warcserver.index.cdxobject import CDXObject, CDXException
 
 
 # ============================================================================
@@ -47,6 +49,7 @@ class RewriterApp(object):
         self.paths = paths or {}
 
         self.framed_replay = framed_replay
+        self.continuity = self.config.get('continuity', dict())
 
         if framed_replay:
             self.frame_mod = ''
@@ -321,8 +324,21 @@ class RewriterApp(object):
         environ['pywb.static_prefix'] = environ['pywb.host_prefix'] + environ['pywb.app_prefix'] + '/' + self.static_prefix
 
     def render_content(self, wb_url, kwargs, environ):
-        wb_url = wb_url.replace('#', '%23')
+        wb_url = wb_url.replace('#', '%23').replace('&', '%26')
         wb_url = WbUrl(wb_url)
+        
+        # check for nobanner mode.
+        try:
+            if wb_url.nobanner:
+                self.framed_replay = False
+                self.frame_mod = None
+                self.replay_mod = ''
+            else:
+                self.framed_replay = True
+                self.frame_mod = ''
+                self.replay_mod = 'mp_'
+        except AttributeError as ex:
+            pass
 
         history_page = environ.pop('HTTP_X_WOMBAT_HISTORY_PAGE', '')
         if history_page:
@@ -337,6 +353,13 @@ class RewriterApp(object):
 
         host_prefix = environ['pywb.host_prefix']
         rel_prefix = self.get_rel_prefix(environ)
+
+        try:
+            if wb_url.nobanner:
+                rel_prefix += 'nobanner/'
+        except AttributeError as ex:
+            pass
+
         full_prefix = host_prefix + rel_prefix
 
         pywb_static_prefix = environ['pywb.static_prefix'] + '/'
@@ -360,6 +383,7 @@ class RewriterApp(object):
 
         response = None
         keep_frame_response = False
+        timeline_response = True
 
         # prefer overrides custom response?
         if pref_mod is not None:
@@ -389,7 +413,7 @@ class RewriterApp(object):
                 keep_frame_response = (not kwargs.get('no_timegate_check') and is_timegate and not is_proxy) or redirect_to_exact or self.client_side_replay
 
 
-        if response and not keep_frame_response:
+        if response and not keep_frame_response and timeline_response:
             return self.format_response(response, wb_url, full_prefix, is_timegate, is_proxy)
 
         if is_proxy:
@@ -454,6 +478,25 @@ class RewriterApp(object):
             else:
                 raise UpstreamException(r.status_code, url=wb_url.url, details=details)
 
+        if response and not keep_frame_response:
+            # update the archived date on banner
+            if wb_url.is_continuity_replay():
+                from bs4 import BeautifulSoup
+
+                memento_datetime = timestamp_to_datetime(http_date_to_timestamp(r.headers.get('Memento-Datetime')))
+
+                soup = BeautifulSoup(response, features="lxml")
+
+                soup.find("span", {"id": "timestamp"}).string.replace_with(
+                    f"{memento_datetime.day} {self.month_abbr(memento_datetime.month)} {memento_datetime.year}")
+
+                soup.find("span", {"id": "mobile-timestamp"}).string.replace_with(
+                    f"{memento_datetime.day} {self.month_abbr(memento_datetime.month)} {memento_datetime.year}")
+
+                return self.format_response(soup, wb_url, full_prefix, is_timegate, is_proxy)
+
+            return self.format_response(response, wb_url, full_prefix, is_timegate, is_proxy)
+
         cdx = CDXObject(r.headers.get('Warcserver-Cdx').encode('utf-8'))
 
         cdx_url_parts = urlsplit(cdx['url'])
@@ -493,32 +536,36 @@ class RewriterApp(object):
             set_content_loc = True
 
         # if redirect to exact timestamp (only set if not live)
-        if redirect_to_exact:
-            if set_content_loc or is_timegate or wb_url.timestamp != cdx.get('timestamp'):
-                new_url = urlrewriter.get_new_url(url=target_uri,
-                                                  timestamp=cdx['timestamp'],
-                                                  mod=wb_url.mod)
+        if not wb_url.is_continuity_replay():
+            if redirect_to_exact:
+                if set_content_loc or is_timegate or wb_url.timestamp != cdx.get('timestamp'):
+                    new_url = urlrewriter.get_new_url(url=target_uri,
+                                                      timestamp=cdx['timestamp'],
+                                                      mod=wb_url.mod)
 
-                resp = WbResponse.redir_response(new_url, '307 Temporary Redirect')
-                if self.enable_memento:
-                    if is_timegate and not is_proxy:
-                        self._add_memento_links(target_uri, full_prefix,
-                                                memento_dt, cdx['timestamp'],
-                                                resp.status_headers,
-                                                is_timegate, is_proxy,
-                                                pref_applied=pref_applied,
-                                                mod=pref_mod,
-                                                is_memento=False)
+                    resp = WbResponse.redir_response(new_url, '302 Redirect') if self.config['strict_memento'] else WbResponse.redir_response(new_url, '307 Temporary Redirect')
+                    if self.enable_memento:
+                        if is_timegate and not is_proxy:
+                            self._add_memento_links(target_uri, full_prefix,
+                                                    memento_dt, cdx['timestamp'],
+                                                    resp.status_headers,
+                                                    is_timegate, is_proxy,
+                                                    pref_applied=pref_applied,
+                                                    mod=pref_mod,
+                                                    is_memento=False)
 
-                    else:
-                        resp.status_headers['Link'] = MementoUtils.make_link(target_uri, 'original')
+                        else:
+                            resp.status_headers['Link'] = MementoUtils.make_link(target_uri, 'original')
 
-                return resp
+                    return resp
 
         self._add_custom_params(cdx, r.headers, kwargs, record)
 
         if self._add_range(record, wb_url, range_start, range_end):
             wb_url.mod = 'id_'
+
+        if wb_url.type == WbUrl.CONTINUITY:
+            urlrewriter.rewrite_opts['is_continuity'] = True
 
         if is_ajax:
             head_insert_func = None
@@ -729,10 +776,33 @@ class RewriterApp(object):
 
         if wb_url.is_latest_replay():
             closest = 'now'
+        elif wb_url.is_continuity_replay():
+            closest = 'now'
         else:
-            closest = wb_url.timestamp
+            if self.config.get('latest_replay_only'):
+                closest = 'now'
+            else:
+                closest = wb_url.timestamp
 
         params = {'url': wb_url.url, 'closest': closest, 'matchType': 'exact'}
+
+        if wb_url.is_continuity_replay() or len(wb_url.timestamp) == 0:
+            params['filter'] = '~status:[2][0][0-6]'
+
+        else:
+            params['filter'] = '~status:[2-3][0-9][0-9]'
+
+            # restrict number of records passed through
+        if self.config.get('cdx_replay_results_limit'):
+            limit_value = 100
+            # setting default limit for continuity mode
+            if not wb_url.is_continuity_replay():
+                try:
+                    limit_value = int(self.config['cdx_replay_results_limit'])
+                except Exception as e:
+                    pass
+
+            params['limit'] = limit_value
 
         if wb_url.mod == 'vi_':
             params['content_type'] = self.VIDEO_INFO_CONTENT_TYPE
@@ -774,6 +844,30 @@ class RewriterApp(object):
 
         return r
 
+    def do_query_timeline(self, wb_url, kwargs):
+        # a single digit end_timestamp controls the timeline filters
+        # <empty> - show one capture per day, and hide redirects
+        # 1       - show one capture per day, and show redirects
+        # 2       - show all captures, and hide redirects
+        # 3       - show all captures, and show redirects
+
+        if len(wb_url.end_timestamp) == 1 and wb_url.end_timestamp in ('1', '3'):
+            status_filter = '~status:[2-3][0-9][0-9]'
+        else:
+            status_filter = '~status:[2][0][0-6]'
+
+        params = {
+            'url': wb_url.url,
+            'output': kwargs.get('output', 'text'),
+            'filter': status_filter,
+        }
+        
+        upstream_url = self.get_upstream_url(wb_url, kwargs, params)
+        upstream_url = upstream_url.replace('/resource/postreq', '/index')
+        # upstream_url = f'{prefix}cdx?output=text&url={wb_url.url}'
+        r = requests.get(upstream_url)
+        return r
+
     def make_timemap(self, wb_url, res, full_prefix, output):
         wb_url.type = wb_url.QUERY
 
@@ -797,6 +891,71 @@ class RewriterApp(object):
                                         content_type=content_type,
                                         status=status)
 
+    def group_by_year(self, wb_url, cdx_lines):
+        # a single digit end_timestamp controls the timeline filters
+        # <empty> - show one capture per day, and hide redirects
+        # 1       - show one capture per day, and show redirects
+        # 2       - show all captures, and hide redirects
+        # 3       - show all captures, and show redirects
+
+        if len(wb_url.end_timestamp) == 1:
+            limit_one_per_day = False if wb_url.end_timestamp in ('2', '3') else True
+        else:
+            limit_one_per_day = self.config.get('limit_one_per_day', False)
+        
+        num_instances = 0
+        num_by_year = dict()
+        cdx_ymd_prev = "19700101"
+        cdx_grouped = defaultdict(dict)
+        for cdx in cdx_lines:
+            cdx_dt = timestamp_to_datetime(cdx['timestamp'])
+            cdx_ymd = "{}{}{}".format(cdx_dt.year, cdx_dt.month, cdx_dt.day)
+            # if self.config.get('limit_one_per_day', False):
+            if limit_one_per_day:
+                if cdx_ymd == cdx_ymd_prev:
+                    continue
+            num_instances += 1
+            try:
+                cdx_grouped[str(cdx_dt.year)][str(cdx_dt.month)][str(cdx_dt.day)].append(cdx)
+            except KeyError:
+                try:
+                    cdx_grouped[str(cdx_dt.year)][str(cdx_dt.month)].update({str(cdx_dt.day): [cdx]})
+                except KeyError:
+                    cdx_grouped[str(cdx_dt.year)][str(cdx_dt.month)] = ({str(cdx_dt.day): [cdx]})
+            try:
+                num_by_year[str(cdx_dt.year)] += 1
+            except KeyError:
+                num_by_year[str(cdx_dt.year)] = 1
+            cdx_ymd_prev = cdx_ymd
+        return (num_instances, num_by_year, OrderedDict(
+            sorted(cdx_grouped.items(), key=lambda x: x[0], reverse=True))
+                )
+
+    def timeline_renderer(self, wb_url, res) -> tuple[int, dict[str, int], OrderedDict]:
+        content = []
+        text = res.content.split(b'\n')
+        for t in text:
+            if t:
+                cdxformat = ['urlkey', 'timestamp', 'url']
+                fields = t.split(b' ', 3)[:-1]
+                cdx = {}
+                for header, field in zip(cdxformat, fields):
+                    cdx[header] = to_native_str(field, 'utf-8')
+                content.append(cdx)
+        return self.group_by_year(wb_url, content)
+
+    def make_timeline(self, wb_url, res):
+
+        num_instances, num_by_year, cdx_years = self.timeline_renderer(wb_url, res)
+        if num_instances == 0:
+            raise NotFoundException('No archives found')
+        params = {'num_instances': num_instances,
+                  'num_by_year': num_by_year,
+                  'cdx_years': cdx_years,
+                  'site_meta': '',
+                  }
+        return params
+
     def handle_timemap(self, wb_url, kwargs, full_prefix):
         output = kwargs.get('output')
         kwargs['memento_format'] = full_prefix + '{timestamp}' + self.replay_mod + '/{url}'
@@ -805,6 +964,7 @@ class RewriterApp(object):
 
     def handle_query(self, environ, wb_url, kwargs, full_prefix):
         prefix = self.get_full_prefix(environ)
+
 
         res = dict(parse_qsl(environ.get("QUERY_STRING")))
         is_advanced = res.get("matchType", "exact") != "exact" or res.get("url", "").endswith("*")
@@ -817,7 +977,11 @@ class RewriterApp(object):
         params = dict(url=wb_url.url,
                       prefix=prefix,
                       ui=ui)
-
+        res = self.do_query_timeline(wb_url, kwargs)
+        if res.status_code == 500:
+            raise NotFoundException('Not found')
+        timeline = self.make_timeline(wb_url, res)
+        params.update(timeline)
         return self.query_view.render_to_string(environ, **params)
 
     def get_host_prefix(self, environ):
@@ -870,7 +1034,6 @@ class RewriterApp(object):
         if value and value.lower() == 'xmlhttprequest':
             return True
 
-
         # additional checks for proxy mode only
         if not ('wsgiprox.proxy_host' in environ):
             return False
@@ -894,7 +1057,6 @@ class RewriterApp(object):
             return False
 
         return True
-
 
     def get_base_url(self, wb_url, kwargs):
         type_ = kwargs.get('type')
@@ -950,3 +1112,13 @@ class RewriterApp(object):
                                                         extra_params=extra_params)
 
         return None
+
+    @staticmethod
+    def month_abbr(value):
+        choices = {
+            '1': 'Jan', '2': 'Feb', '3': 'Mar',
+            '4': 'Apr', '5': 'May', '6': 'Jun',
+            '7': 'Jul', '8': 'Aug', '9': 'Sep',
+            '10': 'Oct', '11': 'Nov', '12': 'Dec'
+        }
+        return choices[str(value)]

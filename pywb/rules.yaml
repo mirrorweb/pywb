@@ -58,6 +58,29 @@ default_filters:
 
 
 rules:
+    # wales.gov.uk rules
+    #=================================================================
+    - url_prefix: uk,gov,wales,new)/
+      fuzzy_lookup: 
+        re_type: sub
+        match: ';jsessionid=[0-9A-Z]{32}'
+        replace: ''
+
+    # oft.gov.uk rules
+    #=================================================================
+    - url_prefix: uk,gov,oft)/
+      fuzzy_lookup:
+        re_type: sub
+        match: ';jsessionid=[0-9A-Za-z]{32}'
+        replace: ''
+
+    # dsfc.ac.uk rules
+    #=================================================================    
+    - url_prefix: uk,ac,dsfc)/
+      fuzzy_lookup:
+        re_type: sub
+        match: '\?returnUrl=/Latest-News'
+        replace: ''
 
     # twitter rules
     #=================================================================
