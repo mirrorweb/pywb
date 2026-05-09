@@ -12,7 +12,7 @@ from webassets.ext.jinja2 import AssetsExtension
 from webassets.loaders import YAMLLoader
 from webassets.env import Resolver
 
-from pkg_resources import resource_filename
+from importlib.resources import files
 
 import os
 import logging
@@ -418,6 +418,8 @@ class TopFrameView(BaseInsertView):
                       env,
                       frame_mod,
                       replay_mod,
+                      client_side_replay,
+                      inject_scripts,
                       coll='',
                       extra_params=None):
         """
@@ -427,6 +429,7 @@ class TopFrameView(BaseInsertView):
         :param dict env: The WSGI environment dictionary for the request this template is being rendered for
         :param str frame_mod:  The modifier to be used for framing (e.g. if_)
         :param str replay_mod: The modifier to be used in the URL of the page being replayed (e.g. mp_)
+        :param bool client_side_replay: Boolean indicating whether to use wabac.js-based client side replay
         :param str coll: The name of the collection this template is being rendered for
         :param dict extra_params: Additional parameters to be supplied to the Jninja template render method
         :return: The frame insert string
@@ -453,8 +456,12 @@ class TopFrameView(BaseInsertView):
 
                   'embed_url': embed_url,
                   'is_proxy': is_proxy,
+                  'client_side_replay': client_side_replay,
                   'timestamp': timestamp,
-                  'url': wb_url.get_url()
+                  'url': wb_url.get_url(),
+
+                  'sw_prefix': env.get('pywb.app_prefix', ''),
+                  'inject_scripts': inject_scripts,
                  }
 
         if extra_params:
@@ -490,10 +497,9 @@ class PkgResResolver(Resolver):
     def resolve_source(self, ctx, item):
         pkg = self.get_pkg_path(item)
         if pkg:
-            filename = resource_filename(pkg[0], pkg[1])
+            filename = str(files(pkg[0]).joinpath(pkg[1].lstrip('/')))
             if filename:
                 return filename
 
         return super(PkgResResolver, self).resolve_source(ctx, item)
-
 

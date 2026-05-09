@@ -12,7 +12,11 @@ html, body
 }
 
 </style>
+
 <script src='{{ static_prefix }}/wb_frame.js'> </script>
+{% if client_side_replay %}
+<script src='{{ static_prefix }}/loadWabac.js'></script>
+{% endif %}
 
 {% autoescape false %}
 
@@ -45,12 +49,24 @@ html, body
 <div id="wb_iframe_div">
 <iframe id="replay_iframe" frameborder="0" seamless="seamless" scrolling="yes" class="wb_iframe" allow="autoplay; fullscreen"></iframe>
 </div>
+
 <script>
-  var cframe = new ContentFrame({"url": "{{ url }}" + window.location.hash,
+  window.cframe = null;
+
+  if (navigator.serviceWorker) {
+{% if client_side_replay %}
+    window.cframe = new WabacReplay("{{ wb_prefix }}", "{{ url }}", "{{ timestamp }}", "{{ static_prefix }}", "{{ coll }}", "{{ sw_prefix }}", {{ inject_scripts | tojson }});
+    window.cframe.init();
+{% else %}
+    navigator.serviceWorker.getRegistration("{{ sw_prefix }}").then(reg => { if (reg) reg.unregister() });
+{% endif %}
+  }
+  if (!window.cframe) {
+    window.cframe = new ContentFrame({"url": "{{ url }}" + window.location.hash,
                                  "prefix": "{{ wb_prefix }}",
                                  "request_ts": "{{ wb_url.timestamp }}",
                                  "iframe": "#replay_iframe"});
-
+  }
 </script>
 </body>
 </html>

@@ -5,9 +5,26 @@ from setuptools import setup, find_packages
 from setuptools.command.test import test as TestCommand
 import glob
 import os
+import pathlib
 import sys
+import urllib.request
 
 from pywb import __version__
+
+
+root_dir = pathlib.Path(__file__).parent
+
+
+WABAC_SW_URL = "https://cdn.jsdelivr.net/npm/@webrecorder/wabac@2.26.0/dist/sw.js"
+
+def download_wabac_sw():
+    print(f"Downloading {WABAC_SW_URL}")
+    with urllib.request.urlopen(WABAC_SW_URL) as response:  # nosec
+        with open(root_dir.joinpath("pywb", "static", "wabacSW.js"), "wb") as fh:
+            fh.write(response.read())
+
+
+download_wabac_sw()
 
 
 def get_long_description():
@@ -106,10 +123,11 @@ setup(
     extras_require={
         "i18n":  [
             "babel",
-            "translate_toolkit"
+            "translate_toolkit",
+            "babel-vue-extractor"
         ],
     },
-    python_requires='>=3.7,<3.12',
+    python_requires='>=3.9,<3.15',
     tests_require=load_requirements("test_requirements.txt"),
     cmdclass={'test': PyTest},
     test_suite='',
@@ -129,11 +147,12 @@ setup(
         'License :: OSI Approved :: GNU General Public License (GPL)',
         'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.7',
-        'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
         'Programming Language :: Python :: 3.10',
         'Programming Language :: Python :: 3.11',
+        'Programming Language :: Python :: 3.12',
+        'Programming Language :: Python :: 3.13',
+        'Programming Language :: Python :: 3.14',
         'Topic :: Internet :: Proxy Servers',
         'Topic :: Internet :: WWW/HTTP',
         'Topic :: Internet :: WWW/HTTP :: WSGI',

@@ -8,7 +8,7 @@ from six.moves.urllib.parse import urlencode
 
 import webtest
 from fakeredis import FakeStrictRedis
-from mock import patch
+from mock import Mock, patch
 import pytest
 
 import os
@@ -33,7 +33,7 @@ from pywb.utils.memento import MementoUtils
 sources = {
     'local': DirectoryIndexSource(TEST_CDX_PATH),
     'ia': MementoIndexSource.from_timegate_url('http://web.archive.org/web/'),
-    'rhiz': MementoIndexSource.from_timegate_url('https://webenact.rhizome.org/vvork/'),
+    'rhiz': MementoIndexSource.from_timegate_url('https://webarchives.rhizome.org/vvork/'),
     'live': LiveIndexSource(),
 }
 
@@ -42,6 +42,10 @@ ia_cdx = {
                                 'http://web.archive.org/web/{timestamp}id_/{url}')
 }
 
+IA_CDX_IANA = b'''\
+org,iana)/ 20161103124134 http://iana.org/ unk 302 3I42H3S6NNFQ2MSVX7XZKYAYSCX5QBYJ 320
+org,iana)/ 20161104161551 https://www.iana.org/ warc/revisit - K3MFZ2HC5UGVYQ42CM5RARW7DWQTTEOS 498
+'''
 
 
 
@@ -212,14 +216,16 @@ class TestBaseWarcServer(HttpBinLiveTests, MementoOverrideTests, FakeRedisTests,
 
         assert 'ResErrors' not in resp.headers
 
-    def test_agg_select_mem_unrewrite_headers(self):
+    @patch.object(ia_cdx['ia-cdx'].sesh, 'get')
+    def test_agg_select_mem_unrewrite_headers(self, mock_get):
+        mock_get.return_value = Mock(content=IA_CDX_IANA)
+
         resp = self.testapp.get('/cdx_api/resource?closest=20161103124134&url=http://iana.org/')
 
         assert resp.headers['Warcserver-Source-Coll'] == 'ia-cdx'
 
         buff = BytesIO(resp.body)
         record = ArcWarcRecordLoader().parse_record_stream(buff, no_record_parse=False)
-        print(record.http_headers)
         assert record.http_headers.get_statuscode() == '200'
         #assert record.http_headers.get_header('Location') == 'https://www.iana.org/'
 
@@ -247,7 +253,7 @@ class TestBaseWarcServer(HttpBinLiveTests, MementoOverrideTests, FakeRedisTests,
         assert resp.headers['Link'] == MementoUtils.make_link('http://www.iana.org/', 'original')
         assert resp.headers['Memento-Datetime'] == 'Sun, 26 Jan 2014 20:06:24 GMT'
 
-        assert json.loads(resp.headers['ResErrors']) == {"rhiz": "NotFoundException('https://webenact.rhizome.org/vvork/http://iana.org/',)"}
+        assert json.loads(resp.headers['ResErrors']) == {"rhiz": "NotFoundException('https://webarchives.rhizome.org/vvork/http://iana.org/',)"}
 
     @patch('pywb.warcserver.index.indexsource.MementoIndexSource.get_timegate_links', MementoOverrideTests.mock_link_header('select_local_postreq'))
     def test_agg_select_local_postreq(self):
@@ -267,7 +273,7 @@ Host: iana.org
         assert resp.headers['Link'] == MementoUtils.make_link('http://www.iana.org/', 'original')
         assert resp.headers['Memento-Datetime'] == 'Sun, 26 Jan 2014 20:06:24 GMT'
 
-        assert json.loads(resp.headers['ResErrors']) == {"rhiz": "NotFoundException('https://webenact.rhizome.org/vvork/http://iana.org/',)"}
+        assert json.loads(resp.headers['ResErrors']) == {"rhiz": "NotFoundException('https://webarchives.rhizome.org/vvork/http://iana.org/',)"}
 
     @patch('pywb.warcserver.index.indexsource.MementoIndexSource.get_timegate_links', MementoOverrideTests.mock_link_header('select_live_postreq'))
     def test_agg_live_postreq(self):
@@ -290,8 +296,8 @@ Host: httpbin.org
         assert b'HTTP/1.1 200 OK' in resp.body
         assert b'"foo": "bar"' in resp.body
 
-        #assert json.loads(resp.headers['ResErrors']) == {"rhiz": "NotFoundException('https://webenact.rhizome.org/vvork/http://httpbin.org/get?foo=bar',)"}
-        assert "NotFoundException('https://webenact.rhizome.org/vvork/" in json.loads(resp.headers['ResErrors'])['rhiz']
+        #assert json.loads(resp.headers['ResErrors']) == {"rhiz": "NotFoundException('https://webarchives.rhizome.org/vvork/http://httpbin.org/get?foo=bar',)"}
+        assert "NotFoundException('https://webarchives.rhizome.org/vvork/" in json.loads(resp.headers['ResErrors'])['rhiz']
 
     def test_agg_post_resolve_postreq(self):
         req_data = """\

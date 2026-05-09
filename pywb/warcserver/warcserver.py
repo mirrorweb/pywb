@@ -248,6 +248,9 @@ class WarcServer(BaseWarcServer):
         # ARCHIVE CONFIG
         if not archive_paths:
             archive_paths = self.config.get('archive_paths')
+            use_local_file_load = False
+        else:
+            use_local_file_load = True
 
         # ACCESS CONFIG
         access_checker = None
@@ -256,7 +259,8 @@ class WarcServer(BaseWarcServer):
 
         return DefaultResourceHandler(agg, archive_paths,
                                       rules_file=self.rules_file,
-                                      access_checker=access_checker)
+                                      access_checker=access_checker,
+                                      use_local_file_load=use_local_file_load)
 
     def init_sequence(self, coll_name, seq_config):
         if not isinstance(seq_config, list):

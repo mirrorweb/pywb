@@ -44,6 +44,19 @@ To disable framed replay add:
 
 Note: pywb also supports HTTP/S **proxy mode** which requires additional setup. See :ref:`https-proxy` for more details.
 
+.. _client_side_replay:
+
+Client-side replay
+------------------
+
+In pywb 2.9.0+, client-side replay can optionally be enabled for framed replay.
+
+To enable client-side framed replay add:
+
+``client_side_replay: true`` to your config.yaml
+
+In this mode, pywb will use the `wabac.js <https://github.com/webrecorder/wabac.js>`_ service worker-based replay system that underlies `ReplayWeb.page <https://replayweb.page/>`_ in live proxy mode. This may result in better replay for certain JavaScript-heavy sites.
+
 
 .. _dir_structure:
 
@@ -642,3 +655,30 @@ By default, SSL-Certificates of websites are not verified. To enable verificatio
 
 ``ca_cert_dir`` can optionally point to a directory containing the CA certificates that you trust. Most linux distributions provide CA certificates via a package called ``ca-certificates``.
 If omitted, the default system CA used by Python is used.
+
+Injecting Scripts
+-----------------
+
+Extra JavaScript files can be injected into replayed pages. This can be useful for emulating removed browser features
+or applying compatibility tweaks.
+
+For example, to emulate Flash Player using `Ruffle <https://ruffle.rs/>`_, create a subdirectory named ``static/ruffle``
+and unzip the `Ruffle self-hosted package <https://ruffle.rs/downloads#website-package>`_ into it. Then add the following
+configuration::
+
+  inject_scripts:
+    - ruffle/ruffle.js
+
+Note: Paths listed under ``inject_scripts`` are relative to the ``static_dir`` directory (default ``static/``).
+
+Injected scripts can also be configured per collection::
+
+  inject_scripts:
+    - all.js
+    - other.js
+
+  collections:
+    mycoll:
+      inject_scripts:
+        - all.js                # static/all.js
+        - _/mycoll/tweaks.js    # collections/mycoll/static/tweaks.js
