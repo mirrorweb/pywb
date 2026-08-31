@@ -25,6 +25,9 @@ STATUSCODE = 'status'
 DIGEST = 'digest'
 REDIRECT = 'redirect'
 ROBOTFLAGS = 'robotflags'
+# LENGTH is the compressed byte span of the record in the WARC/ARC file.
+# pywb reads it with OFFSET to make a range request (see pywb/utils/loaders.py).
+# It follows the IIPC CDX format. It is not the HTTP Content-Length of the payload.
 LENGTH = 'length'
 OFFSET = 'offset'
 FILENAME = 'filename'
