@@ -1,0 +1,18 @@
+---
+name: "tna-relay"
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+permissions:
+  contents: "read"
+jobs:
+  relay:
+    name: "[tna-relay|relay]"
+    uses: "mirrorweb/tna-code-sync-actions/.github/workflows/relay.yaml@b91a1f2aa3280b1d93097f50b27a98d07ee3bb90" # main
+    with:
+      source-repository: "${{ github.repository }}"
+      app-id: "${{ vars.TNA_SYNC_APP_ID }}"
+    secrets:
+      app-private-key: "${{ secrets.TNA_SYNC_APP_PRIVATE_KEY }}"
+      slack-webhook-url: "${{ secrets.TNA_SYNC_SLACK_WEBHOOK_URL }}"
