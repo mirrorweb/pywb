@@ -261,6 +261,28 @@ class JSLinkAndLocationRewriter(RegexRewriter):
 
 JSRewriter = JSLinkAndLocationRewriter
 
+
+# =================================================================
+class JSModuleRewriterRules(JSLinkAndLocationRewriterRules):
+    """
+    JS Rewriter rules for ES modules: same URL and location rewriting as
+    :class:`JSLinkAndLocationRewriterRules`, but rewritten URLs carry the
+    ``esm_`` modifier so imported resources are also replayed as modules.
+    The wombat block-scope wrapper is intentionally not applied, because
+    import/export statements are only valid at a module's top level.
+    """
+
+    def get_rules(self, prefix):
+        rules = super(JSLinkAndLocationRewriterRules, self).get_rules(prefix)
+        rules.append((self.JS_HTTPX, RxRules.archival_rewrite('esm_'), 0))
+        return rules
+
+
+# =================================================================
+class JSModuleRewriter(RegexRewriter):
+    rules_factory = JSModuleRewriterRules()
+
+
 # =================================================================
 class JSWombatProxyRewriter(RegexRewriter):
     """

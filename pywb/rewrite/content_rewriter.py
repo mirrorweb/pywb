@@ -469,6 +469,11 @@ class RewriteInfo(object):
         if mod in WORKER_MODS:
             return 'js-worker'
 
+        # module scripts are served with the esm_ modifier so they are
+        # rewritten without the wombat proxy block scope
+        if mod == 'esm_':
+            return 'js-module'
+
         if text_type == 'css' and mod == 'js_':
             text_type = 'css'
 

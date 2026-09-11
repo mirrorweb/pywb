@@ -244,6 +244,47 @@ class TestContentRewriter(object):
         exp = 'function() { WB_wombat_location.href = "http://example.com/"; }'
         assert b''.join(gen).decode('utf-8') == exp
 
+    def test_rewrite_html_module_script(self):
+        headers = {'Content-Type': 'text/html'}
+        content = ('<html><body>'
+                   '<script type="module">import {x} from "https://cdn.example.com/lib.js"; var u = location.href;</script>'
+                   '<script type="module" src="/app.js"></script>'
+                   '<script>var a = window.location;</script>'
+                   '</body></html>')
+
+        rwheaders, gen, is_rw = self.rewrite_record(headers, content, ts='201701mp_')
+        result = b''.join(gen).decode('utf-8')
+
+        inline = result.split('type="module">')[1].split('</script>')[0]
+        # inline module: import URL rewritten as a module, location wrapped,
+        # no wombat block-scope wrapper (invalid inside a module)
+        assert 'http://localhost:8080/prefix/201701esm_/https://cdn.example.com/lib.js' in inline
+        assert 'WB_wombat_location.href' in inline
+        assert 'let window ' not in inline
+
+        # external module served with the esm_ modifier
+        assert 'src="/prefix/201701esm_/http://example.com/app.js"' in result
+
+        # a plain script is still wrapped in the wombat proxy block scope
+        regular = result.split('<script>')[1].split('</script>')[0]
+        assert 'let window ' in regular
+
+    def test_rewrite_esm_mod(self):
+        headers = {'Content-Type': 'application/javascript'}
+        content = 'import {y} from "https://cdn.example.com/dep.js";\nexport const z = location.href;\n'
+
+        rwheaders, gen, is_rw = self.rewrite_record(headers, content, ts='201701esm_',
+                                                    url='http://example.com/app.js')
+        result = b''.join(gen).decode('utf-8')
+
+        assert ('Content-Type', 'text/javascript') in rwheaders.headers
+        # import specifier rewritten to a module URL, import/export kept intact,
+        # no wombat block-scope wrapper
+        assert 'http://localhost:8080/prefix/201701esm_/https://cdn.example.com/dep.js' in result
+        assert result.startswith('import {y} from')
+        assert 'export const z = WB_wombat_location.href;' in result
+        assert 'let window ' not in result
+
     def test_rewrite_sw_add_headers(self):
         headers = {'Content-Type': 'application/x-javascript'}
         content = "function() { location.href = 'http://example.com/'; }"
