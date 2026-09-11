@@ -9,7 +9,7 @@ from six.moves.urllib.parse import urljoin, urlsplit, urlunsplit
 
 
 from pywb.rewrite.url_rewriter import UrlRewriter
-from pywb.rewrite.regex_rewriters import JSRewriter, CSSRewriter
+from pywb.rewrite.regex_rewriters import JSRewriter, JSModuleRewriter, CSSRewriter
 
 from pywb.rewrite.content_rewriter import StreamingRewriter, BaseContentRewriter
 
@@ -136,6 +136,7 @@ class HTMLRewriterMixin(StreamingRewriter):
         super(HTMLRewriterMixin, self).__init__(url_rewriter, False)
         self.charset = charset
         self._wb_parse_context = None
+        self._wb_parse_module = False
 
         if js_rewriter:
             self.js_rewriter = js_rewriter
@@ -143,6 +144,11 @@ class HTMLRewriterMixin(StreamingRewriter):
             self.js_rewriter = js_rewriter_class(url_rewriter)
         else:
             self.js_rewriter = JSRewriter(url_rewriter)
+
+        # module scripts (<script type="module">) hold import/export statements
+        # that are invalid inside the wombat proxy block scope, so rewrite their
+        # URLs with a module rewriter that does not wrap the content
+        self.js_module_rewriter = JSModuleRewriter(url_rewriter)
 
         if css_rewriter:
             self.css_rewriter = css_rewriter
@@ -321,9 +327,12 @@ class HTMLRewriterMixin(StreamingRewriter):
         else:
             return rw_css
 
-    def _rewrite_script(self, script_content, inline_attr=False):
+    def _rewrite_script(self, script_content, inline_attr=False, is_module=False):
         if not script_content:
             return ''
+
+        if is_module:
+            return self.js_module_rewriter.rewrite_complete(script_content)
 
         content = self.js_rewriter.rewrite_complete(script_content,
                                                     inline_attr=inline_attr)
@@ -451,7 +460,12 @@ class HTMLRewriterMixin(StreamingRewriter):
                 attr_value = self._rewrite_url(attr_value, rw_mod)
 
             elif tag == 'script' and attr_name == 'src':
-                rw_mod = handler.get(attr_name)
+                # a module script must be served as a module so its own
+                # import/export statements survive replay
+                if self._is_js_module_type(tag_attrs):
+                    rw_mod = 'esm_'
+                else:
+                    rw_mod = handler.get(attr_name)
                 ov = attr_value
                 attr_value = self._rewrite_url(attr_value, rw_mod)
                 if attr_value == ov and not ov.startswith(self.url_rewriter.NO_REWRITE_URI_PREFIX):
@@ -500,6 +514,10 @@ class HTMLRewriterMixin(StreamingRewriter):
         elif rel == 'stylesheet':
             rw_mod = 'cs_'
 
+        # module preload must be replayed as a module, not a wrapped script
+        elif rel == 'modulepreload':
+            rw_mod = 'esm_'
+
         return self._rewrite_url(attr_value, rw_mod)
 
     def _set_parse_context(self, tag, tag_attrs):
@@ -509,7 +527,12 @@ class HTMLRewriterMixin(StreamingRewriter):
                 self._wb_parse_context = 'style'
 
             elif tag == 'script':
-                if self._allow_js_type(tag_attrs):
+                if self._is_js_module_type(tag_attrs):
+                    # keep the context named 'script' so the </script> end tag
+                    # still closes it; the module flag drives the rewriter choice
+                    self._wb_parse_context = 'script'
+                    self._wb_parse_module = True
+                elif self._allow_js_type(tag_attrs):
                     self._wb_parse_context = 'script'
 
     def _allow_js_type(self, tag_attrs):
@@ -527,6 +550,10 @@ class HTMLRewriterMixin(StreamingRewriter):
             return True
 
         return False
+
+    def _is_js_module_type(self, tag_attrs):
+        type_value = self.get_attr(tag_attrs, 'type')
+        return bool(type_value) and type_value.strip().lower() == 'module'
 
     def _rewrite_target(self, attr_value):
         self._write_attr('target', attr_value, False)
@@ -567,7 +594,7 @@ class HTMLRewriterMixin(StreamingRewriter):
 
     def parse_data(self, data):
         if self._wb_parse_context == 'script':
-            data = self._rewrite_script(data)
+            data = self._rewrite_script(data, is_module=self._wb_parse_module)
         elif self._wb_parse_context == 'style':
             data = self._rewrite_css(data)
 
@@ -644,6 +671,7 @@ class HTMLRewriter(HTMLRewriterMixin, HTMLParser):
             end_tag = '</' + self._wb_parse_context + '>'
             self.feed(end_tag)
             self._wb_parse_context = None
+            self._wb_parse_module = False
 
         # if haven't insert head_insert, but wrote some content
         # out, then insert head_insert now
@@ -676,6 +704,7 @@ class HTMLRewriter(HTMLRewriterMixin, HTMLParser):
     def handle_endtag(self, tag):
         if (tag == self._wb_parse_context):
             self._wb_parse_context = None
+            self._wb_parse_module = False
 
         if tag == 'head' and not self.has_base:
             self._write_default_base()
