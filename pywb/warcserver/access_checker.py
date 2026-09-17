@@ -12,7 +12,7 @@ from pywb.utils.merge import merge
 
 from mw_takedowns.access_check import url_blocked
 from warcio.timeutils import timestamp_to_datetime
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 from dateutil.relativedelta import relativedelta
 import os
 
@@ -122,11 +122,11 @@ class AccessChecker(object):
 
         value = embargo.get('before')
         if value:
-            embargo['before'] = timestamp_to_datetime(str(value))
+            embargo['before'] = timestamp_to_datetime(str(value), tz_aware=True)
 
         value = embargo.get('after')
         if value:
-            embargo['after'] = timestamp_to_datetime(str(value))
+            embargo['after'] = timestamp_to_datetime(str(value), tz_aware=True)
 
         value = embargo.get('older')
         if value:
@@ -154,7 +154,7 @@ class AccessChecker(object):
         if not self.embargo:
             return None
 
-        dt = timestamp_to_datetime(ts)
+        dt = timestamp_to_datetime(ts, tz_aware=True)
         access = self.embargo.get('access', 'exclude')
 
         # embargo before
@@ -171,14 +171,61 @@ class AccessChecker(object):
         # embargo if newser than
         newer = self.embargo.get('newer')
         if newer:
-            actual = datetime.utcnow() - newer
+            actual = datetime.now(timezone.utc) - newer
             return access if actual < dt else None
 
         # embargo if older than
         older = self.embargo.get('older')
         if older:
-            actual = datetime.utcnow() - older
+            actual = datetime.now(timezone.utc) - older
             return access if actual > dt else None
+
+    def check_date_access(
+        self, ts, access, default_access, rule
+    ):
+        """Return access based on date fields in access rule
+
+        If a date-based rule exists and condition is not met, return default rule
+        If no date-based rule exists, return access
+        """
+        if not rule:
+            return access
+
+        dt = timestamp_to_datetime(ts, tz_aware=True)
+
+        before_ts = rule.get('before')
+        if before_ts:
+            before = timestamp_to_datetime(before_ts, tz_aware=True)
+            return access if dt < before else default_access
+
+        after_ts = rule.get('after')
+        if after_ts:
+            after = timestamp_to_datetime(after_ts, tz_aware=True)
+            return access if dt > after else default_access
+
+        newer = rule.get('newer')
+        if newer:
+            delta = relativedelta(
+                years=newer.get('years', 0),
+                months=newer.get('months', 0),
+                weeks=newer.get('weeks', 0),
+                days=newer.get('days', 0)
+            )
+            actual = datetime.now(timezone.utc) - delta
+            return access if actual < dt else default_access
+
+        older = rule.get('older')
+        if older:
+            delta = relativedelta(
+                years=older.get('years', 0),
+                months=older.get('months', 0),
+                weeks=older.get('weeks', 0),
+                days=older.get('days', 0)
+            )
+            actual = datetime.now(timezone.utc) - delta
+            return access if actual > dt else default_access
+
+        return access
 
     def create_access_aggregator(self, source_files):
         """Creates a new AccessRulesAggregator using the supplied list
