@@ -15,13 +15,24 @@ from pywb import __version__
 root_dir = pathlib.Path(__file__).parent
 
 
-WABAC_SW_URL = "https://cdn.jsdelivr.net/npm/@webrecorder/wabac@2.25.0/dist/sw.js"
+WABAC_SW_VERSION = "2.27.2"
+WABAC_SW_URL = f"https://cdn.jsdelivr.net/npm/@webrecorder/wabac@{WABAC_SW_VERSION}/dist/sw.js"
 
 def download_wabac_sw():
+    sw_path = root_dir.joinpath("pywb", "static", "wabacSW.js")
+    expected_header = f"/*! sw.js (wabac.js {WABAC_SW_VERSION})".encode("ascii")
+    if sw_path.is_file():
+        with sw_path.open("rb") as fh:
+            if fh.read(len(expected_header)) == expected_header:
+                return
+
     print(f"Downloading {WABAC_SW_URL}")
     with urllib.request.urlopen(WABAC_SW_URL) as response:  # nosec
-        with open(root_dir.joinpath("pywb", "static", "wabacSW.js"), "wb") as fh:
-            fh.write(response.read())
+        sw_data = response.read()
+    if not sw_data.startswith(expected_header):
+        raise ValueError(f"Downloaded service worker is not wabac.js {WABAC_SW_VERSION}")
+
+    sw_path.write_bytes(sw_data)
 
 
 download_wabac_sw()
@@ -127,7 +138,7 @@ setup(
             "babel-vue-extractor"
         ],
     },
-    python_requires='>=3.7,<3.15',
+    python_requires='>=3.9,<3.15',
     tests_require=load_requirements("test_requirements.txt"),
     cmdclass={'test': PyTest},
     test_suite='',
@@ -147,8 +158,6 @@ setup(
         'License :: OSI Approved :: GNU General Public License (GPL)',
         'License :: OSI Approved :: GNU General Public License v3 (GPLv3)',
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.7',
-        'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
         'Programming Language :: Python :: 3.10',
         'Programming Language :: Python :: 3.11',
