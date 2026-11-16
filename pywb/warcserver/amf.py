@@ -1,7 +1,5 @@
 import json
-import six
-from pyamf.remoting import Envelope, Request
-from pyamf.flex.messaging import RemotingMessage
+from pywb.utils.amf_decoder import Envelope, Request, AMFObject
 
 
 class Amf:
@@ -29,10 +27,10 @@ class Amf:
             body = Amf.get_representation(request_object.body, max_calls)
             return "<Request target={target}>{body}</Request>".format(**locals())
 
-        elif isinstance(request_object, RemotingMessage):
+        elif isinstance(request_object, AMFObject) and request_object.class_name == 'RemotingMessage':
             # Remove random properties
-            operation = request_object.operation
-            body = Amf.get_representation(request_object.body, max_calls)
+            operation = request_object.props['operation']
+            body = Amf.get_representation(request_object.props['body'], max_calls)
             return "<RemotingMessage operation={operation}>{body}</RemotingMessage>".format(**locals())
 
         elif isinstance(request_object, dict):
@@ -44,21 +42,25 @@ class Amf:
                 bodies.append(Amf.get_representation(i, max_calls))
             return "[" + ",".join(bodies) + "]"
 
-        elif isinstance(request_object, six.string_types):
+        elif isinstance(request_object, str):
             return request_object
 
         elif request_object is None:
             return ""
 
-        elif isinstance(request_object, object) and hasattr(request_object, "__dict__"):
-            classname = request_object.__class__.__name__
-            properties = request_object.__dict__
+        elif isinstance(request_object, AMFObject):
+            classname = request_object.class_name
+            properties = request_object.props
             bodies = dict()
             for prop in properties:
-                bodies[prop] = Amf.get_representation(getattr(request_object, prop), max_calls)
+                bodies[prop] = Amf.get_representation(properties[prop], max_calls)
             bodies = Amf.get_representation(bodies, max_calls)
 
             return '<{classname}>{bodies}</{classname}>'.format(**locals())
+
+        elif isinstance(request_object, bytearray):
+            # py3AMF requests with a ByteArray here had no representation
+            raise Exception("Amf.get_representation unsupported ByteArray")
 
         else:
             return repr(request_object)

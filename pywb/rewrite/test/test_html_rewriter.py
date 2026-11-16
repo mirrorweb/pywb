@@ -117,6 +117,15 @@ r"""
 >>> parse('<META http-equiv="refresh" content="10; URL=/abc/def.html">')
 <meta http-equiv="refresh" content="10; URL=/web/20131226101010/http://example.com/abc/def.html">
 
+>>> parse("<meta http-equiv=\"refresh\" content=\"0;url='http://example.com/abc/def.html'\">")
+<meta http-equiv="refresh" content="0;url='/web/20131226101010/http://example.com/abc/def.html'">
+
+>>> parse('<meta http-equiv="refresh" content="5, /abc/def.html">')
+<meta http-equiv="refresh" content="5, /web/20131226101010/http://example.com/abc/def.html">
+
+>>> parse('<meta http-equiv="refresh" content="30">')
+<meta http-equiv="refresh" content="30">
+
 >>> parse('<meta http-equiv="Content-type" content="text/html; charset=utf-8" />')
 <meta http-equiv="Content-type" content="text/html; charset=utf-8"/>
 
@@ -438,7 +447,6 @@ from pywb.rewrite.html_rewriter import HTMLRewriter
 from pywb.rewrite.regex_rewriters import JSWombatProxyRewriter
 
 import pprint
-import six
 
 ORIGINAL_URL = 'http://example.com/some/path/index.html'
 
@@ -473,14 +481,7 @@ def parse(data, head_insert=None, urlrewriter=urlrewriter, parse_comments=False,
         parser.js_rewriter.first_buff = '{ '
         parser.js_rewriter.last_buff = ' }'
 
-    if six.PY2 and isinstance(data, six.text_type):
-        data = data.encode('utf-8')
-
     result = parser.rewrite(data) + parser.close()
-
-    if six.PY2:
-        # decode only for printing
-        result = result.decode('utf-8')
 
     print(result)
 

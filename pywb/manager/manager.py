@@ -6,7 +6,6 @@ import heapq
 import yaml
 import re
 import gzip
-import six
 import pathlib
 
 from distutils.util import strtobool
@@ -22,7 +21,6 @@ from warcio.timeutils import timestamp20_now
 
 from pywb import DEFAULT_CONFIG
 
-from six.moves import input
 
 
 #=============================================================================
@@ -51,7 +49,7 @@ directory structure expected by pywb
     """
     DEF_INDEX_FILE = 'index.cdxj'
 
-    COLL_RX = re.compile('^[\w][-\w]*$')
+    COLL_RX = re.compile(r'^[\w][-\w]*$')
 
     COLLS_DIR = 'collections'
 
@@ -290,7 +288,7 @@ directory structure expected by pywb
 
         for f in filelist:
             abs_filepath = os.path.abspath(f)
-            prefix = os.path.commonprefix([abs_archive_dir, abs_filepath])
+            prefix = os.path.commonpath([abs_archive_dir, abs_filepath])
 
             if prefix != abs_archive_dir:
                 raise IOError(wrongdir.format(abs_filepath, abs_archive_dir))

@@ -8,7 +8,6 @@ from pywb.warcserver.index.cdxobject import CDXException
 from pywb.warcserver.index.fuzzymatcher import FuzzyMatcher
 from pywb.warcserver.resource.responseloader import  WARCPathLoader, LiveWebLoader, VideoLoader
 
-import six
 import logging
 import traceback
 
@@ -117,11 +116,11 @@ class IndexHandler(object):
 
         def check_str(first_line, lines):
             if first_line is not None:
-                if isinstance(first_line, six.text_type):
+                if isinstance(first_line, str):
                     first_line = first_line.encode('utf-8')
                 yield first_line
             for line in lines:
-                if isinstance(line, six.text_type):
+                if isinstance(line, str):
                     line = line.encode('utf-8')
                 yield line
 
@@ -130,6 +129,11 @@ class IndexHandler(object):
 
 #=============================================================================
 class ResourceHandler(IndexHandler):
+    # default limit for resource lookups with closest and no explicit limit:
+    # only the first closest captures are usually loaded, so avoid sorting
+    # and keeping all the captures of the url (applied in CDXQuery.limit)
+    CLOSEST_LIMIT = 100
+
     def __init__(self, index_source, resource_loaders, **kwargs):
         super(ResourceHandler, self).__init__(index_source, **kwargs)
         self.resource_loaders = resource_loaders
@@ -142,6 +146,8 @@ class ResourceHandler(IndexHandler):
     def __call__(self, params):
         if params.get('mode', 'resource') != 'resource':
             return super(ResourceHandler, self).__call__(params)
+
+        params['_closest_limit'] = self.CLOSEST_LIMIT
 
         cdx_iter, errs = self._load_index_source(params)
         if not cdx_iter:

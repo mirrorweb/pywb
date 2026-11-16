@@ -187,6 +187,47 @@ If the ``SOCKS_HOST`` and optionally ``SOCKS_PORT`` environment variables are se
 Note that, at this time, it is not possible to configure a SOCKS proxy per pywb collection -- all live web traffic will use the SOCKS proxy if enabled.
 
 
+.. _live-url-filter:
+
+Filtering Live Web Requests
+"""""""""""""""""""""""""""
+
+When pywb is publicly accessible with a live web collection (or recording from the live web), any user can make pywb request
+any url, including urls on hosts only reachable from the pywb server, eg. internal services on a private network.
+
+To restrict which urls may be requested, a custom filter function can be set with the ``live_url_filter`` option::
+
+  live_url_filter: mypackage.filters:is_url_allowed
+
+The function is called before every request to the live web, or to a remote archive (eg. a memento source), as ``is_url_allowed(url, cdx)``,
+where ``url`` is the url about to be requested and ``cdx`` is the capture being loaded: ``cdx['url']`` is the original url, and
+``cdx.get('is_live')`` is set when loading from the live web. The function must return ``True`` to allow the request.
+If it returns a false value or raises an exception, the request is not made.
+
+pywb does not provide a filter implementation. For example, a filter could resolve the host and reject private network addresses::
+
+  import ipaddress
+  import socket
+  from urllib.parse import urlsplit
+
+  def is_url_allowed(url, cdx):
+      host = urlsplit(url).hostname
+      for info in socket.getaddrinfo(host, None):
+          if not ipaddress.ip_address(info[4][0]).is_global:
+              return False
+      return True
+
+The filter is an application-level check, to be used in addition to network-level controls, not instead of them. It has some limitations:
+
+* It checks urls, not connections. A filter that resolves the host, like the example above, does not protect against DNS rebinding,
+  as the host is resolved again when the request is made. If a SOCKS proxy is used, the host is resolved by the proxy.
+* For video info requests (the ``vi_`` modifier, only when ``youtube-dl`` is installed), only the initial url is checked.
+  The requests made by ``youtube-dl`` itself, eg. following redirects, are not.
+
+For a publicly accessible deployment, it is recommended to also block requests to private network, loopback and link-local
+addresses (eg. cloud metadata endpoints) with egress firewall rules on the pywb host.
+
+
 .. _auto-all:
 
 Auto "All" Aggregate Collection
@@ -600,6 +641,8 @@ For more information on custom certificate authority (CA) installation, the `mit
 Compatibility: Redirects, Memento, Flash video overrides
 --------------------------------------------------------
 
+.. _redirect-to-exact:
+
 Exact Timestamp Redirects
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -617,6 +660,74 @@ However, if the classic redirect behavior is desired, it can be enable by adding
   redirect_to_exact: true
 
 to the config. This will force any url to be redirected to the exact url, and is consistent with previous behavior and other "wayback machine" implementations.
+
+With ``redirect_to_exact``, the index is read twice for the same url: for the redirect, and again for the redirected url.
+When running with uWSGI, the :ref:`index-cache` avoids the second read.
+
+
+.. _index-cache:
+
+Index Cache (uWSGI)
+^^^^^^^^^^^^^^^^^^^
+
+When pywb runs in `uWSGI <https://uwsgi-docs.readthedocs.io/>`_, the captures read from the index for a url can be kept for a short time
+in a `uWSGI cache <https://uwsgi-docs.readthedocs.io/en/latest/Caching.html>`_, shared by all the uWSGI workers.
+The next queries for the same url, in any worker, then don't read the index. For example:
+
+* the redirected request after an :ref:`exact timestamp redirect <redirect-to-exact>`, and the redirect requests of other users for the same url
+* the lookup of the original record of a revisit
+* the cdx and timemap queries for the url
+
+The cache is enabled when a uWSGI cache named ``pywb-index`` is configured in the uWSGI config, eg. in ``uwsgi.ini``::
+
+  cache2 = name=pywb-index,items=20000,keysize=64,blocksize=4096,blocks=32768,bitmap=1,purge_lru=1,ignore_full=1
+
+The size of the cache is set in uWSGI, as it is allocated before pywb is loaded:
+
+* ``items``: the maximum number of urls in the cache. With ``purge_lru=1``, the least recently used url is removed when it is full.
+* ``blocks`` and ``blocksize``: the memory for the captures, here 32768 blocks of 4 KB, 128 MB. Each capture takes about 400 bytes.
+  With ``bitmap=1``, an entry can use more than one block. If there are not enough free blocks, the captures are not stored until older entries expire.
+* ``keysize=64``: the keys are 64 characters (a sha256 hex digest). The default key size uses 2 KB per item.
+* ``ignore_full=1``: does not log a message each time an item is removed or can't be stored.
+
+The cache is configured in pywb with the ``index_cache`` option. These are the defaults::
+
+  index_cache:
+    # seconds a url is kept in the cache
+    ttl: 60
+
+    # urls with more captures are not cached
+    max_captures: 1000
+
+    # the name of the uWSGI cache
+    uwsgi_cache: pywb-index
+
+Use ``index_cache: false`` to disable it.
+
+Only exact url queries to local indexes (CDX(J) files, directories of them and :ref:`zipnum` indexes) are cached, not prefix or domain queries.
+Collections with other index sources, eg. live web, remote or Redis indexes, are not cached.
+
+The captures of a url are only stored if they were all read, so if there are fewer than the ``limit`` of the query.
+Replay lookups keep only the 100 closest captures (``ResourceHandler.CLOSEST_LIMIT``), so they store the urls with fewer than 100 captures.
+
+Only urls with captures are stored. A url that is added to an index, eg. with a new CDX file or a recording that is auto-indexed,
+is found as soon as the index is updated. New captures of a url that is already in the cache can take up to ``ttl`` seconds to be found:
+until then, the previous captures are returned, eg. an older capture of a page that was just recorded again.
+Use a lower ``ttl``, or ``index_cache: false``, if new captures must be found at once.
+
+The captures are stored with Python's ``pickle`` module, so the uWSGI cache must not be writable by anyone else, eg. through a uWSGI cache server (``cache-server``).
+
+The uWSGI stats server (eg. ``stats = 127.0.0.1:1717`` with ``uwsgitop``) shows the items, hits, misses and full counters of the cache.
+
+Custom Index Cache
+""""""""""""""""""
+
+Other stores can be used by setting ``class`` to a ``module:Class`` subclass of :class:`pywb.warcserver.index.indexcache.IndexCache`
+that implements ``get(key)`` and ``set(key, value)``. Its config is the ``index_cache`` dict::
+
+  index_cache:
+    class: mypackage.cache:MyIndexCache
+    ttl: 30
 
 
 Memento Protocol

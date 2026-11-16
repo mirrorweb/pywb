@@ -77,8 +77,7 @@ import re
 import os
 import pytest
 
-import six
-from six import StringIO
+from io import StringIO
 from io import BytesIO
 import requests
 import yaml
@@ -106,6 +105,7 @@ def s3_authenticated_access_verification(bucket):
     except botocore.exceptions.NoCredentialsError:
         pytest.skip("Skipping S3Loader test for authenticated reads: no credentials configured")
 
+@pytest.mark.live
 def test_s3_read_authenticated_1():
     pytest.importorskip('boto3')
     pytest.skip("credentials issue, to fix later")
@@ -123,6 +123,7 @@ def test_s3_read_authenticated_1():
     assert reader.readline() == b'WARC/1.0\r\n'
     assert reader.readline() == b'WARC-Type: response\r\n'
 
+@pytest.mark.live
 def test_s3_read_authenticated_2():
     pytest.importorskip('boto3')
     pytest.skip("credentials issue, to fix later")
@@ -207,7 +208,7 @@ collection:
     del os.environ['PYWB_FOO']
 
 def print_str(string):
-    return string.decode('utf-8') if six.PY3 else string
+    return string.decode('utf-8')
 
 
 if __name__ == "__main__":

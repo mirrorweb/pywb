@@ -3,10 +3,12 @@ from pywb.utils.loaders import load_yaml_config, load_overlay_config
 from pywb.warcserver.basewarcserver import BaseWarcServer
 
 from pywb.warcserver.http import PywbHttpAdapter, DefaultAdapters
+from pywb.warcserver.liveurlfilter import LiveUrlFilter
 from urllib3.util.retry import Retry
 
 from pywb.warcserver.index.aggregator import CacheDirectoryIndexSource, RedisMultiKeyIndexSource
 from pywb.warcserver.index.aggregator import GeventTimeoutAggregator, SimpleAggregator
+from pywb.warcserver.index.indexcache import init_index_cache
 
 from pywb.warcserver.handlers import DefaultResourceHandler, HandlerSeq
 
@@ -21,8 +23,6 @@ from pywb.warcserver.access_checker import AccessChecker, CacheDirectoryAccessSo
 
 from pywb import DEFAULT_CONFIG
 
-from six import iteritems, iterkeys, itervalues
-from six.moves import zip
 import os
 
 
@@ -103,6 +103,10 @@ class WarcServer(BaseWarcServer):
                                                              cert_reqs=certs_config.get('cert_reqs', 'CERT_NONE'),
                                                              ca_cert_dir=certs_config.get('ca_cert_dir'))
 
+        LiveUrlFilter.init(self.config.get('live_url_filter'))
+
+        self.index_cache = init_index_cache(self.config.get('index_cache'))
+
         self.auto_handler = None
 
         if self.config.get('enable_auto_colls', True):
@@ -110,7 +114,7 @@ class WarcServer(BaseWarcServer):
 
         self.fixed_routes = self.load_colls()
 
-        for name, route in iteritems(self.fixed_routes):
+        for name, route in self.fixed_routes.items():
             if route == self.auto_handler:
                 self.add_route('/' + name, route, path_param_name='param.coll', default_value='*')
             else:
@@ -155,6 +159,8 @@ class WarcServer(BaseWarcServer):
         else:
             source = dir_source
 
+        self.enable_index_cache(source, ())
+
         return DefaultResourceHandler(source, self.archive_paths,
                                       rules_file=self.rules_file,
                                       access_checker=access_checker)
@@ -188,7 +194,7 @@ class WarcServer(BaseWarcServer):
         if not colls:
             return routes
 
-        for name, coll_config in iteritems(colls):
+        for name, coll_config in colls.items():
             try:
                 handler = self.load_coll(name, coll_config)
             except:
@@ -202,7 +208,17 @@ class WarcServer(BaseWarcServer):
 
         return routes
 
-    def load_coll(self, name, coll_config):
+    def enable_index_cache(self, agg, cache_name):
+        if self.index_cache:
+            self.index_cache.enable_for(agg, cache_name)
+
+    def load_coll(self, name, coll_config, cache_name=None):
+        # the index cache needs a different name for each aggregator:
+        # () for the auto collections, (name,) for a collection, and
+        # the name of the collection plus the position in a sequence
+        if cache_name is None:
+            cache_name = (name,)
+
         if coll_config == '$all' and self.auto_handler:
             return self.auto_handler
 
@@ -236,7 +252,7 @@ class WarcServer(BaseWarcServer):
 
             sequence = coll_config.get('sequence')
             if sequence:
-                return self.init_sequence(name, sequence)
+                return self.init_sequence(name, sequence, cache_name)
 
             index_group = coll_config.get('index_group')
             if not index_group:
@@ -244,6 +260,8 @@ class WarcServer(BaseWarcServer):
 
             timeout = int(coll_config.get('timeout', 0))
             agg = init_index_agg(index_group, True, timeout)
+
+        self.enable_index_cache(agg, cache_name)
 
         # ARCHIVE CONFIG
         if not archive_paths:
@@ -262,18 +280,21 @@ class WarcServer(BaseWarcServer):
                                       access_checker=access_checker,
                                       use_local_file_load=use_local_file_load)
 
-    def init_sequence(self, coll_name, seq_config):
+    def init_sequence(self, coll_name, seq_config, cache_name=None):
         if not isinstance(seq_config, list):
             raise Exception('"sequence" config must be a list')
 
+        if cache_name is None:
+            cache_name = (coll_name,)
+
         handlers = []
 
-        for entry in seq_config:
+        for i, entry in enumerate(seq_config):
             if not isinstance(entry, dict):
                 raise Exception('"sequence" entry must be a dict')
 
             name = entry.get('name', '')
-            handler = self.load_coll(name, entry)
+            handler = self.load_coll(name, entry, cache_name + (i,))
             handlers.append(handler)
 
         return HandlerSeq(handlers)
@@ -310,7 +331,7 @@ def register_source(source_cls, end=False):
 # ============================================================================
 def init_index_agg(source_configs, use_gevent=False, timeout=0, source_list=None):
     sources = {}
-    for n, v in iteritems(source_configs):
+    for n, v in source_configs.items():
         sources[n] = init_index_source(v, source_list=source_list)
 
     if use_gevent:

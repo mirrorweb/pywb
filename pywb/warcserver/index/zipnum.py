@@ -5,10 +5,14 @@ import logging
 import os
 from io import BytesIO
 
-import six
-from warcio.bufferedreaders import gzip_decompressor
 
-from pywb.utils.binsearch import iter_range, linearsearch, search
+# isal decompresses about 2.5 times faster than zlib, if it is installed
+try:
+    from isal import isal_zlib as zlib
+except ImportError:  # pragma: no cover
+    import zlib
+
+from pywb.utils.binsearch import INDEX_FILE_BUFFER_SIZE, iter_range, linearsearch, search
 from pywb.utils.io import no_except_close
 from pywb.utils.loaders import BlockLoader, read_last_line
 from pywb.warcserver.index.cdxobject import CDXException, CDXObject, IDXObject
@@ -146,7 +150,7 @@ class ZipNumIndexSource(BaseIndexSource):
         return self._do_load_cdx(self.summary, CDXQuery(params))
 
     def _do_load_cdx(self, filename, query):
-        reader = open(filename, 'rb')
+        reader = open(filename, 'rb', buffering=INDEX_FILE_BUFFER_SIZE)
 
         idx_iter = self.compute_page_range(reader, query)
 
@@ -194,7 +198,7 @@ class ZipNumIndexSource(BaseIndexSource):
         end_iter = search(reader, query.end_key, prev_size=1)
 
         try:
-            end_line = six.next(end_iter)
+            end_line = next(end_iter)
         except StopIteration:
             last_line = read_last_line(reader)
             end_line = last_line
@@ -206,7 +210,7 @@ class ZipNumIndexSource(BaseIndexSource):
                                 prev_size=1)
 
         try:
-            first_line = six.next(first_iter)
+            first_line = next(first_iter)
         except StopIteration:
             if end_line == last_line and query.key >= last_line:
                 first_line = last_line
@@ -233,8 +237,8 @@ class ZipNumIndexSource(BaseIndexSource):
             if blocks == 0:
                 try:
                     block_cdx_iter = self.idx_to_cdx([first_line], query)
-                    block = six.next(block_cdx_iter)
-                    cdx = six.next(block)
+                    block = next(block_cdx_iter)
+                    cdx = next(block)
                 except StopIteration:
                     total_pages = 0
                     blocks = -1
@@ -275,7 +279,7 @@ class ZipNumIndexSource(BaseIndexSource):
             return cmp(line1_no, line2_no)
 
         line_iter = search(reader, line, compare_func=line_cmp)
-        yield six.next(line_iter)
+        yield next(line_iter)
 
     def idx_to_cdx(self, idx_iter, query):
         blocks = None
@@ -324,7 +328,7 @@ class ZipNumIndexSource(BaseIndexSource):
                 last_traceback = sys.exc_info()[2]
 
         if last_exc:
-            six.reraise(Exception, last_exc, last_traceback)
+            raise last_exc.with_traceback(last_traceback)
             #raise last_exc
         else:
             raise Exception('No Locations Found for: ' + blocks.part)
@@ -341,7 +345,7 @@ class ZipNumIndexSource(BaseIndexSource):
         reader = self.blk_loader.load(location, blocks.offset, blocks.length)
 
         def decompress_block(range_):
-            decomp = gzip_decompressor()
+            decomp = zlib.decompressobj(16 + zlib.MAX_WBITS)
             buff = decomp.decompress(reader.read(range_))
             for line in BytesIO(buff):
                 yield line

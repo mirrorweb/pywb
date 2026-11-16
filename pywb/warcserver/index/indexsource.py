@@ -1,7 +1,8 @@
-from six.moves.urllib.parse import quote_plus
+from urllib.parse import quote_plus
 from warcio.timeutils import PAD_14_DOWN, http_date_to_timestamp, pad_timestamp, timestamp_now, timestamp_to_http_date
+from warcio.timeutils import datetime_to_timestamp, timestamp_to_datetime, timestamp_to_sec
 
-from pywb.utils.binsearch import iter_range
+from pywb.utils.binsearch import INDEX_FILE_BUFFER_SIZE, iter_prev_lines, iter_range, search_offset
 from pywb.utils.canonicalize import canonicalize
 from pywb.utils.format import res_template
 from pywb.utils.io import no_except_close
@@ -9,7 +10,8 @@ from pywb.utils.memento import MementoUtils
 from pywb.utils.wbexception import BadRequestException, NotFoundException
 from pywb.warcserver.http import DefaultAdapters
 from pywb.warcserver.index.cdxobject import CDXObject
-from pywb.warcserver.index.cdxops import cdx_sort_closest
+from pywb.warcserver.index.cdxops import cdx_sort_closest, closest_seek_limit
+from pywb.warcserver.liveurlfilter import LiveUrlFilter
 
 try:
     from lxml import etree
@@ -20,6 +22,7 @@ import redis
 
 import requests
 
+import itertools
 import re
 import logging
 import os
@@ -63,7 +66,7 @@ class FileIndexSource(BaseIndexSource):
 
     def _do_open(self, filename):
         try:
-            return open(filename, 'rb')
+            return open(filename, 'rb', buffering=INDEX_FILE_BUFFER_SIZE)
         except IOError:
             raise NotFoundException(filename)
 
@@ -80,8 +83,60 @@ class FileIndexSource(BaseIndexSource):
         return do_iter()
 
     def _do_iter(self, fh, params):
-        for line in iter_range(fh, params['key'], params['end_key']):
+        limit = closest_seek_limit(params)
+        if limit:
+            lines = self._iter_closest(fh, params, limit)
+        else:
+            lines = iter_range(fh, params['key'], params['end_key'])
+
+        for line in lines:
             yield CDXObject(line)
+
+    def _iter_closest(self, fh, params, limit):
+        """
+        Iterate only over the lines of the url around 'closest': up to 'limit'
+        lines after it, and up to 'limit' lines before it plus any earlier
+        lines in the same second as the first one, as cdx_sort_closest()
+        breaks ties in favour of the earlier capture.
+
+        The lines of a url are sorted by timestamp, so the distance to
+        'closest' grows on each side. A line left out is ranked after 'limit'
+        lines of the same file, which are closer to 'closest', or as close
+        and earlier. So it is not among the 'limit' closest captures, in this
+        file or in all files, and cdx_sort_closest() returns the same
+        captures, in the same order, as when reading every line of the url
+        with iter_range().
+        """
+        key = params['key']
+
+        # same padding as cdx_sort_closest(), e.g. 2015 is the end of 2015
+        closest = datetime_to_timestamp(timestamp_to_datetime(params['closest']))
+        offset = search_offset(fh, key + b' ' + closest.encode('utf-8'))
+
+        start = offset
+        num_before = 0
+        for line_offset, line in iter_prev_lines(fh, offset):
+            if line < key:
+                break
+
+            if num_before >= limit and self._line_sec(line) != first_sec:
+                break
+
+            if num_before == limit - 1:
+                first_sec = self._line_sec(line)
+
+            start = line_offset
+            num_before += 1
+
+        fh.seek(start)
+
+        lines = (line.rstrip() for line in iter(fh.readline, b''))
+        lines = itertools.takewhile(lambda line: line < params['end_key'], lines)
+        return itertools.islice(lines, num_before + limit)
+
+    @staticmethod
+    def _line_sec(line):
+        return timestamp_to_sec(line.split(b' ', 2)[1].decode('utf-8'))
 
     def __repr__(self):
         return '{0}(file://{1})'.format(self.__class__.__name__,
@@ -117,7 +172,7 @@ class FileIndexSource(BaseIndexSource):
 
 #=============================================================================
 class RemoteIndexSource(BaseIndexSource):
-    CDX_MATCH_RX = re.compile('^cdxj?\+(?P<url>https?\:.*)')
+    CDX_MATCH_RX = re.compile(r'^cdxj?\+(?P<url>https?\:.*)')
 
     def __init__(self, api_url, replay_url, url_field='load_url', closest_limit=100):
         self.api_url = api_url
@@ -139,7 +194,7 @@ class RemoteIndexSource(BaseIndexSource):
     def load_index(self, params):
         api_url = self._get_api_url(params)
         try:
-            r = self.sesh.get(api_url, timeout=params.get('_timeout'))
+            r = self.sesh.get(api_url, timeout=params.get('_timeout', DefaultAdapters.timeout))
             r.raise_for_status()
         except Exception as e:
             self.logger.debug('FAILED: ' + str(e))
@@ -260,7 +315,8 @@ class XmlQueryIndexSource(BaseIndexSource):
             # TODO: add option to not double escape if needed
             query_url = self.query_api_url + '?q=' + quote_plus(query + quote_plus(url))
             self.logger.debug("Running query: %s" % query_url)
-            response = self.session.get(query_url)
+            response = self.session.get(query_url,
+                                        timeout=params.get('_timeout', DefaultAdapters.timeout))
             response.raise_for_status()
 
             results = etree.fromstring(response.content)
@@ -274,7 +330,7 @@ class XmlQueryIndexSource(BaseIndexSource):
 
             raise NotFoundException('url {0} not found'.format(url))
 
-        if not items:
+        if items is None or len(items) == 0:
             raise NotFoundException('url {0} not found'.format(url))
 
         items = items.findall('result')
@@ -385,11 +441,15 @@ class LiveIndexSource(BaseIndexSource):
         cdx['load_url'] = self.get_load_url(params)
         cdx['is_live'] = 'true'
 
+        if not LiveUrlFilter.is_allowed(cdx['load_url'], cdx):
+            raise NotFoundException(params['url'])
+
         mime = params.get('content_type', '')
 
         if params.get('filter') and not mime:
             try:
-                res = self.sesh.head(cdx['load_url'])
+                res = self.sesh.head(cdx['load_url'],
+                                     timeout=params.get('_timeout', DefaultAdapters.timeout))
                 if res.status_code != 405:
                     cdx['status'] = str(res.status_code)
 
@@ -587,7 +647,8 @@ class MementoIndexSource(BaseIndexSource):
         try:
             headers = self._get_headers(params)
             headers['Accept-Datetime'] = accept_dt
-            res = self.sesh.head(url, headers=headers)
+            res = self.sesh.head(url, headers=headers,
+                                 timeout=params.get('_timeout', DefaultAdapters.timeout))
             res.raise_for_status()
         except Exception as e:
             self.logger.debug('FAILED: ' + str(e))
@@ -610,7 +671,7 @@ class MementoIndexSource(BaseIndexSource):
         try:
             res = self.sesh.get(url,
                                 headers=headers,
-                                timeout=params.get('_timeout'))
+                                timeout=params.get('_timeout', DefaultAdapters.timeout))
 
             res.raise_for_status()
             assert(res.text)
@@ -685,7 +746,7 @@ class MementoIndexSource(BaseIndexSource):
 
 #=============================================================================
 class WBMementoIndexSource(MementoIndexSource):
-    WBURL_MATCH = re.compile('([0-9]{0,14})?(?:\w+_)?/{0,3}(.*)')
+    WBURL_MATCH = re.compile(r'([0-9]{0,14})?(?:\w+_)?/{0,3}(.*)')
     WAYBACK_ORIG_SUFFIX = '{timestamp}im_/{url}'
 
     def __init__(self, timegate_url, timemap_url, replay_url):
@@ -729,7 +790,8 @@ class WBMementoIndexSource(MementoIndexSource):
         res = None
         try:
             headers = self._get_headers(params)
-            res = self.sesh.head(load_url, headers=headers)
+            res = self.sesh.head(load_url, headers=headers,
+                                 timeout=params.get('_timeout', DefaultAdapters.timeout))
         except Exception as e:
             no_except_close(res)
             raise NotFoundException(url)

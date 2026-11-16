@@ -1,19 +1,27 @@
-from pywb.warcserver.index.cdxobject import CDXObject, IDXObject
+from pywb.warcserver.index.cdxobject import CDXObject, IDXObject, URLKEY
 from pywb.warcserver.index.cdxobject import TIMESTAMP, STATUSCODE, MIMETYPE, DIGEST
 from pywb.warcserver.index.cdxobject import OFFSET, LENGTH, FILENAME
 
 from pywb.warcserver.index.query import CDXQuery
+from pywb.utils.format import to_bool
 
-from warcio.timeutils import timestamp_to_sec, pad_timestamp
+from warcio.timeutils import timestamp_to_sec, sec_to_timestamp, pad_timestamp
 from warcio.timeutils import PAD_14_DOWN, PAD_14_UP
 
-import bisect
+import logging
 
-from six.moves import zip, range, map
 import re
 
-from heapq import merge
+from heapq import merge, heappush, heapreplace
 from collections import deque
+
+
+logger = logging.getLogger('warcserver')
+
+# a closest lookup that reads at least this many captures logs a warning.
+# Usually a url with a very large number of captures, eg. a script embedded
+# in many pages, which makes each replay of these pages slow
+CLOSEST_WARN_CAPTURES = 50000
 
 
 #=================================================================
@@ -81,7 +89,10 @@ def process_cdx(cdx_iter, query):
     limit = query.limit
 
     if closest:
-        cdx_iter = cdx_sort_closest(closest, cdx_iter, limit)
+        # an exact query yields the captures of a single url, merged from the
+        # sources in ascending timestamp order
+        cdx_iter = cdx_sort_closest(closest, cdx_iter, limit,
+                                    sorted_input=query.is_exact)
 
     elif reverse:
         cdx_iter = cdx_reverse(cdx_iter, limit)
@@ -90,6 +101,47 @@ def process_cdx(cdx_iter, query):
         cdx_iter = cdx_limit(cdx_iter, limit)
 
     return cdx_iter
+
+
+#=================================================================
+def closest_seek_limit(params):
+    """
+    Return the limit if process_cdx() would only keep the 'limit' captures
+    closest to 'closest' of a single url, and nothing before the sort removes
+    or changes captures. An index source can then read only the captures
+    around 'closest' instead of every capture of the url.
+    Otherwise, return None.
+    """
+    if not params.get('closest'):
+        return None
+
+    # exact match: a single urlkey
+    if params.get('matchType') != 'exact' or params.get('end_key') != params.get('key', b'') + b'!':
+        return None
+
+    # (paged index queries are not processed at all)
+    for name in ('resolveRevisits', 'reverse', 'showNumPages', 'showPagedIndex'):
+        if to_bool(params.get(name)):
+            return None
+
+    if params.get('sort') == 'reverse':
+        return None
+
+    for name in ('filter', 'from', 'from_ts', 'to', 'collapseTime'):
+        if params.get(name):
+            return None
+
+    try:
+        # the same limit as CDXQuery.limit: replay lookups have no explicit
+        # limit, but a _closest_limit set by the ResourceHandler
+        if 'limit' in params:
+            limit = int(params['limit'])
+        else:
+            limit = int(params.get('_closest_limit') or 100000)
+    except ValueError:
+        return None
+
+    return limit if limit > 0 else None
 
 
 #=================================================================
@@ -272,38 +324,62 @@ def cdx_collapse_time_status(cdx_iter, timelen=10):
 
 
 #=================================================================
-def cdx_sort_closest(closest, cdx_iter, limit=10):
+def cdx_sort_closest(closest, cdx_iter, limit=10, sorted_input=False):
     """
     sort CDXCaptureResult by closest to timestamp.
+
+    yield the `limit` captures nearest to `closest`, nearest first.
+    on equal distance, the capture that came first in `cdx_iter` comes first.
+
+    if `sorted_input` is set, `cdx_iter` should be in ascending timestamp
+    order, as the captures of a single url are. the scan then stops at the
+    first capture after `closest` that is not nearer than the captures kept,
+    as no later capture can be nearer. if a capture is found out of order,
+    the whole input is scanned.
     """
-    closest_cdx = []
-    closest_keys = []
     closest_sec = timestamp_to_sec(closest)
 
-    for cdx in cdx_iter:
+    # bounded max-heap of the nearest captures so far, the farthest on top:
+    # (-distance, -position, cdx). position is unique, so cdx is never compared
+    heap = []
+    last_sec = None
+    scanned = 0
+
+    for pos, cdx in enumerate(cdx_iter):
+        scanned += 1
         sec = timestamp_to_sec(cdx[TIMESTAMP])
         key = abs(closest_sec - sec)
 
-        # create tuple to sort by key
-        #bisect.insort(closest_cdx, (key, cdx))
+        if sorted_input:
+            if last_sec is not None and sec < last_sec:
+                sorted_input = False
+            last_sec = sec
 
-        i = bisect.bisect_right(closest_keys, key)
-        closest_keys.insert(i, key)
-        closest_cdx.insert(i, cdx)
+        if len(heap) < limit:
+            heappush(heap, (-key, -pos, cdx))
 
-        if len(closest_cdx) == limit:
-            # assuming cdx in ascending order and keys have started increasing
-            if key > closest_keys[-1]:
-                break
+        elif not heap:
+            # limit <= 0: keep nothing, but still read the whole input
+            continue
 
-        if len(closest_cdx) > limit:
-            closest_cdx.pop()
+        elif key < -heap[0][0]:
+            heapreplace(heap, (-key, -pos, cdx))
 
-    for cdx in closest_cdx:
+        elif sorted_input and sec > closest_sec:
+            # after closest and not nearer than any capture kept: every
+            # later capture is even farther away
+            break
+
+    if scanned >= CLOSEST_WARN_CAPTURES:
+        # closest may be any string, log the timestamp parsed from it
+        logger.warning('Closest lookup read %d captures: key=%s closest=%s limit=%s',
+                       scanned, cdx.get(URLKEY), sec_to_timestamp(closest_sec), limit)
+
+    # nearest first, then earliest position first
+    heap.sort(reverse=True)
+
+    for _, _, cdx in heap:
         yield cdx
-
-    #for cdx in map(lambda x: x[1], closest_cdx):
-    #    yield cdx
 
 
 #=================================================================

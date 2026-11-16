@@ -1,17 +1,17 @@
-six
 setuptools; python_version>="3.12"
-warcio>=1.7.5
+warcio>=1.8.2
 requests
 redis==2.10.6
 jinja2>=3.1.2
 surt>=0.3.1
-brotlipy
+# earlier versions of brotli are affected by CVE-2026-111497.
+brotlicffi>=1.2.1.0
 pyyaml
-werkzeug==3.1.7
+werkzeug>=2.3.5
 webencodings
 legacy-cgi; python_version>="3.13"
 gevent
-webassets==2.0
+webassets>=2.0
 portalocker
 wsgiprox>=1.5.1
 # certauth uses X509.add_extensions(), which was removed in pyOpenSSL 26.2.
@@ -22,6 +22,5 @@ python-dateutil
 markupsafe>=2.1.1
 ua_parser
 mw-takedowns @ git+ssh://git@github.com/mirrorweb/mw-takedowns@master
-py3amf
 beautifulsoup4
 gunicorn

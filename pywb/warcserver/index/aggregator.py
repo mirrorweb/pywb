@@ -15,16 +15,20 @@ from pywb.utils.wbexception import NotFoundException, WbException
 from pywb.utils.format import ParamFormatter, res_template
 
 from pywb.warcserver.index.indexsource import FileIndexSource, RedisIndexSource
+from pywb.warcserver.index.cdxobject import TIMESTAMP
 from pywb.warcserver.index.cdxops import process_cdx
 from pywb.warcserver.index.query import CDXQuery
 from pywb.warcserver.index.zipnum import ZipNumIndexSource
 
-import six
 import glob
 
 
 #=============================================================================
 class BaseAggregator(object):
+    # set by IndexCache.enable_for(), to cache the results of load_index()
+    index_cache = None
+    index_cache_name = ''
+
     def __call__(self, params):
         if params.get('closest') == 'now':
             params['closest'] = timestamp_now()
@@ -35,7 +39,12 @@ class BaseAggregator(object):
 
         query = CDXQuery(params)
 
-        cdx_iter, errs = self.load_index(query.params)
+        if self.index_cache:
+            cdx_iter, errs = self.index_cache.load_index(self.index_cache_name,
+                                                         self.load_index,
+                                                         query)
+        else:
+            cdx_iter, errs = self.load_index(query.params)
 
         if not query.page_count:
             cdx_iter = process_cdx(cdx_iter, query)
@@ -91,6 +100,8 @@ class BaseAggregator(object):
         #optimization: if only a single entry (or empty) just load directly
         if len(iter_list) <= 1:
             cdx_iter = iter_list[0] if iter_list else iter([])
+        elif params.get('closest') and params.get('matchType', 'exact') == 'exact':
+            cdx_iter = self._merge_by_timestamp(iter_list)
         else:
             cdx_iter = self._merge(iter_list)
 
@@ -98,6 +109,12 @@ class BaseAggregator(object):
 
     def _merge(self, iter_list):
         return merge(*(iter_list))
+
+    def _merge_by_timestamp(self, iter_list):
+        # cdx_sort_closest() expects the captures of an exact query in
+        # ascending timestamp order. A source may encode the urlkey of the
+        # url differently, eg. a remote index, so don't group by urlkey first
+        return merge(*(iter_list), key=lambda cdx: (cdx[TIMESTAMP], cdx))
 
     def _on_source_error(self, name):  #pragma: no cover
         pass
@@ -134,7 +151,7 @@ class BaseSourceListAggregator(BaseAggregator):
 
         if not sel_sources or sel_sources == '*':
             if not invert_sources:
-                return six.iteritems(self.get_all_sources(params))
+                return self.get_all_sources(params).items()
             else:
                 return iter([])
 
@@ -161,7 +178,7 @@ class BaseSourceListAggregator(BaseAggregator):
         sel_sources = tuple([src.split(':', 1)[0]
                              for src in sel_sources.split(',')])
 
-        for name in six.iterkeys(sources):
+        for name in sources.keys():
             if name not in sel_sources:
                 yield (name, sources[name])
 
