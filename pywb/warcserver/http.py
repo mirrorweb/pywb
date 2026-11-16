@@ -1,13 +1,13 @@
 import os
 
 import requests
-import six.moves.http_client
+import http.client
 from requests.adapters import DEFAULT_POOLBLOCK, HTTPAdapter
 from urllib3.poolmanager import PoolManager
 from urllib3.util.retry import Retry
 
-six.moves.http_client._MAXHEADERS = 10000
-six.moves.http_client._MAXLINE = 131072
+http.client._MAXHEADERS = 10000
+http.client._MAXLINE = 131072
 
 
 # =============================================================================
@@ -48,6 +48,9 @@ class PywbHttpAdapter(HTTPAdapter):
 class DefaultAdapters(object):
     live_adapter = PywbHttpAdapter(max_retries=Retry(3))
     remote_adapter = PywbHttpAdapter(max_retries=Retry(3))
+
+    # default timeout (seconds) to connect and between reads
+    timeout = 30
 
 
 requests.packages.urllib3.disable_warnings()

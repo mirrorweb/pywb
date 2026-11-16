@@ -20,7 +20,6 @@ from pywb import get_test_dir
 import os
 import json
 import pytest
-import six
 import re
 
 
@@ -46,7 +45,7 @@ class TestContentRewriter(object):
 
         warc_headers = warc_headers or {}
 
-        if isinstance(payload, six.text_type):
+        if isinstance(payload, str):
             payload = payload.encode('utf-8')
 
         http_headers = StatusAndHeaders('200 OK', headers, protocol='HTTP/1.0')
@@ -335,6 +334,15 @@ class TestContentRewriter(object):
 
         assert is_rw == False
 
+    def test_amf_not_rewritten(self):
+        headers = {'Content-Type': 'application/x-amf'}
+        content = b'\x00\x03\x00\x00\x00\x01\x00\x0b/1/onResult'
+        headers, gen, is_rw = self.rewrite_record(headers, content, ts='201701mp_')
+
+        assert ('Content-Type', 'application/x-amf') in headers.headers
+        assert b''.join(gen) == content
+        assert is_rw == False
+
     def test_binary_wrong_content_type_html(self):
         headers = {'Content-Type': 'text/html; charset=utf-8'}
         content = b'\xe9\x11\x12\x13\x14'
@@ -393,10 +401,9 @@ class TestContentRewriter(object):
 
         assert ('Transfer-Encoding', 'chunked') not in headers.headers
 
-    @pytest.mark.importorskip('brotli')
     def test_brotli_accepted_no_change(self):
-        import brotli
-        content = brotli.compress('ABCDEFG'.encode('utf-8'))
+        brotlicffi = pytest.importorskip('brotlicffi')
+        content = brotlicffi.compress('ABCDEFG'.encode('utf-8'))
 
         headers = {'Content-Type': 'application/octet-stream',
                    'Content-Encoding': 'br',
@@ -409,12 +416,11 @@ class TestContentRewriter(object):
         assert headers['Content-Encoding'] == 'br'
         assert headers['Content-Length'] == str(len(content))
 
-        assert brotli.decompress(b''.join(gen)).decode('utf-8') == 'ABCDEFG'
+        assert brotlicffi.decompress(b''.join(gen)).decode('utf-8') == 'ABCDEFG'
 
-    @pytest.mark.importorskip('brotli')
     def test_brotli_not_accepted_auto_decode(self):
-        import brotli
-        content = brotli.compress('ABCDEFG'.encode('utf-8'))
+        brotlicffi = pytest.importorskip('brotlicffi')
+        content = brotlicffi.compress('ABCDEFG'.encode('utf-8'))
 
         headers = {'Content-Type': 'application/octet-stream',
                    'Content-Encoding': 'br',

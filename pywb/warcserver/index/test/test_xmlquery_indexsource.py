@@ -3,7 +3,7 @@ from pywb.warcserver.test.testutils import BaseTestClass, key_ts_res
 from pywb.warcserver.index.indexsource import XmlQueryIndexSource
 from pywb.warcserver.index.aggregator import SimpleAggregator
 
-from six.moves.urllib.parse import quote_plus
+from urllib.parse import quote_plus
 
 from mock import patch
 import pytest
@@ -13,7 +13,7 @@ query_url = None
 
 
 # ============================================================================
-def mock_get(self, url):
+def mock_get(self, url, timeout=None):
     string = ''
     global query_url
     query_url = url

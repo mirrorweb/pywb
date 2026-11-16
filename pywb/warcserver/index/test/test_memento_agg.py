@@ -10,7 +10,6 @@ from pywb.warcserver.test.testutils import to_json_list, to_path, TEST_CDX_PATH,
 import json
 import pytest
 import time
-import six
 
 from mock import patch
 
@@ -153,7 +152,8 @@ class TestMemAgg(MementoOverrideTests, BaseTestClass):
         orig_source = BaseAggregator.load_child_source
         def load_child_source(self, name, source, params):
             time.sleep(0.1)
-            return orig_source(self, name, source, params)
+            # all sources time out, don't query them after the test, as the remote ones would reach the live web
+            return iter([]), []
 
         BaseAggregator.load_child_source = load_child_source
         res, errs = agg(dict(url=url, closest='20141001', limit=2))

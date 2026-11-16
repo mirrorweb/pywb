@@ -4,22 +4,21 @@
 import re
 import sys
 
-from six.moves.html_parser import HTMLParser
-from six.moves.urllib.parse import urljoin, urlsplit, urlunsplit
+from html.parser import HTMLParser
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 
 from pywb.rewrite.url_rewriter import UrlRewriter
 from pywb.rewrite.regex_rewriters import JSRewriter, CSSRewriter
 
 from pywb.rewrite.content_rewriter import StreamingRewriter, BaseContentRewriter
+from pywb.utils.refresh import rewrite_refresh
 
-from six import text_type
-
-import six.moves.html_parser
+import html.parser
 
 try:
-    orig_unescape = six.moves.html_parser.unescape
-    six.moves.html_parser.unescape = lambda x: x
+    orig_unescape = html.parser.unescape
+    html.parser.unescape = lambda x: x
     BaseContentRewriter.set_unescape(orig_unescape)
 except:
     orig_unescape = None
@@ -165,12 +164,9 @@ class HTMLRewriterMixin(StreamingRewriter):
         self.has_base = False
 
     # ===========================
-    META_REFRESH_REGEX = re.compile('^[\\d.]+\\s*;\\s*url\\s*=\\s*(.+?)\\s*$',
-                                    re.IGNORECASE | re.MULTILINE)
-
     ADD_WINDOW = re.compile('(?<![.])(WB_wombat_)')
 
-    SRCSET_REGEX = re.compile('\s*(\S*\s+[\d\.]+[wx]),|(?:\s*,(?:\s+|(?=https?:)))')
+    SRCSET_REGEX = re.compile(r'\s*(\S*\s+[\d\.]+[wx]),|(?:\s*,(?:\s+|(?=https?:)))')
 
     def _rewrite_srcset(self, value, mod=''):
         if not value:
@@ -184,15 +180,7 @@ class HTMLRewriterMixin(StreamingRewriter):
         if not meta_refresh:
             return ''
 
-        m = self.META_REFRESH_REGEX.match(meta_refresh)
-        if not m:
-            return meta_refresh
-
-        meta_refresh = (meta_refresh[:m.start(1)] +
-                        self._rewrite_url(m.group(1)) +
-                        meta_refresh[m.end(1):])
-
-        return meta_refresh
+        return rewrite_refresh(meta_refresh, self._rewrite_url)
 
     def _rewrite_base(self, url, mod=''):
         if not url:

@@ -1,13 +1,12 @@
 from pywb.warcserver.inputrequest import DirectWSGIInputRequest
 from pywb.utils.loaders import extract_client_cookie
 
-from six import iteritems
-from six.moves.urllib.parse import urlsplit
+from urllib.parse import urlsplit
 import re
 
 
 try: # pragma: no cover
-    import brotli
+    import brotlicffi
     has_brotli = True
 except Exception:  # pragma: no cover
     has_brotli = False
@@ -16,9 +15,9 @@ except Exception:  # pragma: no cover
 
 #=============================================================================
 class RewriteInputRequest(DirectWSGIInputRequest):
-    RANGE_ARG_RX = re.compile('.*.googlevideo.com/videoplayback.*([&?]range=(\d+)-(\d+))')
+    RANGE_ARG_RX = re.compile(r'.*.googlevideo.com/videoplayback.*([&?]range=(\d+)-(\d+))')
 
-    RANGE_HEADER = re.compile('bytes=(\d+)-(\d+)?')
+    RANGE_HEADER = re.compile(r'bytes=(\d+)-(\d+)?')
 
     def __init__(self, env, urlkey, url, rewriter):
         super(RewriteInputRequest, self).__init__(env)
@@ -50,7 +49,7 @@ class RewriteInputRequest(DirectWSGIInputRequest):
 
         has_cookies = False
 
-        for name, value in iteritems(self.env):
+        for name, value in self.env.items():
             if name == 'HTTP_HOST':
                 name = 'Host'
                 if self.splits:
@@ -92,6 +91,14 @@ class RewriteInputRequest(DirectWSGIInputRequest):
                 name = 'X-Forwarded-Proto'
                 if self.splits:
                     value = self.splits.scheme
+
+            elif name == 'HTTP_SEC_FETCH_DEST':
+                # pages are loaded inside the replay frame, so browsers send 'iframe' for them.
+                # Some sites refuse frames (e.g. Facebook answers with an error page),
+                # so send frame requests upstream as documents (not needed in proxy mode)
+                name = 'Sec-Fetch-Dest'
+                if self.splits and value.lower() in ('iframe', 'frame'):
+                    value = 'document'
 
             elif name == 'HTTP_ACCEPT_ENCODING':
                 # if brotli not available, remove 'br' from accept-encoding to avoid

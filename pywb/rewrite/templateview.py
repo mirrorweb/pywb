@@ -3,7 +3,7 @@ from warcio.timeutils import timestamp_now
 
 from pywb.utils.loaders import load
 
-from six.moves.urllib.parse import urlsplit, quote
+from urllib.parse import urlsplit, quote
 
 from jinja2 import Environment, TemplateNotFound, pass_context, select_autoescape
 from jinja2 import FileSystemLoader, PackageLoader, ChoiceLoader
@@ -16,12 +16,6 @@ from importlib.resources import files
 
 import os
 import logging
-
-try:
-    import ujson as json
-except ImportError:  # pragma: no cover
-    import json
-
 
 # ============================================================================
 class RelEnvironment(Environment):
@@ -132,7 +126,7 @@ class JinjaEnv(object):
                 for loc in locales:
                     loc_map[loc] = Translations.load(locales_root_dir, [loc, default_locale])
             except:
-                logging.warn("Ignoring Locales. You must install i18n extensions with 'pip install pywb[i18n]' to use localization features")
+                logging.warning("Ignoring Locales. You must install i18n extensions with 'pip install pywb[i18n]' to use localization features")
 
         def get_translate(context):
             loc = context.get('env', {}).get('pywb_lang', default_locale)
@@ -257,16 +251,6 @@ class JinjaEnv(object):
             """
             split = urlsplit(url)
             return split
-
-        @self.template_filter()
-        def tojson(obj):
-            """Converts the supplied object/array/any to a JSON string if it can be JSONified
-
-            :param any obj: The value to be converted to a JSON string
-            :return: The JSON string representation of the supplied value
-            :rtype: str
-            """
-            return json.dumps(obj)
 
         @self.template_filter()
         def tobool(bool_val):

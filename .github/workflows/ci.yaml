@@ -1,6 +1,12 @@
 name: CI
 
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  # Weekly run against the latest dependency releases to catch upstream breakage
+  schedule:
+    - cron: '0 6 * * 1'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -9,20 +15,25 @@ concurrency:
 jobs:
   unit-tests:
     timeout-minutes: 20
-    runs-on: ubuntu-latest
+    # Temporarily pinned, as Python 3.9 is not available on newer runner images
+    runs-on: ubuntu-24.04
     strategy:
-      max-parallel: 6
+      max-parallel: 7
       matrix:
-        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
+        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14', '3.15']
 
     steps:
       - name: checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
+
+      # isal currently has no Python 3.15 wheels, and building it from source needs nasm
+      - name: Install nasm
+        run: sudo apt-get update && sudo apt-get install -y nasm
 
       - name: Install dependencies
         run: |
@@ -33,5 +44,5 @@ jobs:
         run: tox
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
 

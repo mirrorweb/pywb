@@ -15,13 +15,24 @@ from pywb import __version__
 root_dir = pathlib.Path(__file__).parent
 
 
-WABAC_SW_URL = "https://cdn.jsdelivr.net/npm/@webrecorder/wabac@2.26.0/dist/sw.js"
+WABAC_SW_VERSION = "2.27.4"
+WABAC_SW_URL = f"https://cdn.jsdelivr.net/npm/@webrecorder/wabac@{WABAC_SW_VERSION}/dist/sw.js"
 
 def download_wabac_sw():
+    sw_path = root_dir.joinpath("pywb", "static", "wabacSW.js")
+    expected_header = f"/*! sw.js (wabac.js {WABAC_SW_VERSION})".encode("ascii")
+    if sw_path.is_file():
+        with sw_path.open("rb") as fh:
+            if fh.read(len(expected_header)) == expected_header:
+                return
+
     print(f"Downloading {WABAC_SW_URL}")
     with urllib.request.urlopen(WABAC_SW_URL) as response:  # nosec
-        with open(root_dir.joinpath("pywb", "static", "wabacSW.js"), "wb") as fh:
-            fh.write(response.read())
+        sw_data = response.read()
+    if not sw_data.startswith(expected_header):
+        raise ValueError(f"Downloaded service worker is not wabac.js {WABAC_SW_VERSION}")
+
+    sw_path.write_bytes(sw_data)
 
 
 download_wabac_sw()
@@ -105,20 +116,11 @@ setup(
     description='Pywb Webrecorder web archive replay and capture tools',
     long_description=get_long_description(),
     license='GPL',
-    packages=find_packages(exclude=['tests_disabled']),
+    packages=find_packages(exclude=['tests','tests.*','tests_disabled','*.test','*.test.*']),
     zip_safe=False,
     package_data={
         'pywb': get_package_data(),
     },
-    data_files=[
-        ('sample_archive/cdx', glob.glob('sample_archive/cdx/*')),
-        ('sample_archive/cdxj', glob.glob('sample_archive/cdxj/*')),
-        ('sample_archive/non-surt-cdx', glob.glob('sample_archive/non-surt-cdx/*')),
-        ('sample_archive/zipcdx', glob.glob('sample_archive/zipcdx/*')),
-        ('sample_archive/warcs', glob.glob('sample_archive/warcs/*')),
-        ('sample_archive/text_content',
-         glob.glob('sample_archive/text_content/*')),
-    ],
     install_requires=load_requirements('requirements.txt'),
     extras_require={
         "i18n":  [
@@ -127,7 +129,7 @@ setup(
             "babel-vue-extractor"
         ],
     },
-    python_requires='>=3.9,<3.15',
+    python_requires='>=3.9',
     tests_require=load_requirements("test_requirements.txt"),
     cmdclass={'test': PyTest},
     test_suite='',
@@ -153,6 +155,7 @@ setup(
         'Programming Language :: Python :: 3.12',
         'Programming Language :: Python :: 3.13',
         'Programming Language :: Python :: 3.14',
+        'Programming Language :: Python :: 3.15',
         'Topic :: Internet :: Proxy Servers',
         'Topic :: Internet :: WWW/HTTP',
         'Topic :: Internet :: WWW/HTTP :: WSGI',
